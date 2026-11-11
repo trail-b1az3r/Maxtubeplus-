@@ -74,7 +74,8 @@ static id MakeItem(NSString *title, NSString *subtitle, BOOL (^select)(id cell, 
     @try { delegate = [self valueForKey:@"_dataDelegate"]; } @catch (__unused NSException *e) {}
     NSMutableArray *items = [NSMutableArray array];
     MTPCompat *compat = [MTPCompat shared];
-    NSString *statusLine = [NSString stringWithFormat:@"YouTube %@ · %@", compat.appVersion,
+    extern BOOL MTPSafeModeActive(void);
+    NSString *statusLine = MTPSafeModeActive() ? @"SAFE MODE — features off after a startup crash. Open General to re-enable." : [NSString stringWithFormat:@"YouTube %@ · %@", compat.appVersion,
                             compat.level == MTPCompatVerified ? @"verified" : (compat.level == MTPCompatSameMajor ? @"compatible (guarded)" : @"unverified — modules off")];
     id header = MakeItem([NSString stringWithFormat:@"MaxTubePlus %s", MTP_VERSION], statusLine, ^BOOL(id cell, NSUInteger arg) {
         PushFromSettings(delegate, [[MTPSettingsViewController alloc] initWithGroup:MTPSettingsGroupAbout]);

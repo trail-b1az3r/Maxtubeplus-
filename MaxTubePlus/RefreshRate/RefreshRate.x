@@ -24,12 +24,19 @@
 #import "../Common/MTPCommon.h"
 
 static const void *kVideoLinkKey = &kVideoLinkKey;
-static NSInteger gMaxFPS = 60;
+static NSInteger gMaxFPS = 0; // read lazily (UIScreen is not touched at load time)
+
+static NSInteger MaxFPS(void) {
+    // Display links are also created on render threads; UIScreen is only
+    // queried on the main thread (inactive until then).
+    if (gMaxFPS == 0 && [NSThread isMainThread]) gMaxFPS = MAX([UIScreen mainScreen].maximumFramesPerSecond, 1);
+    return gMaxFPS;
+}
 static NSUInteger gLiftedLinks = 0;
 static NSUInteger gSkippedVideoLinks = 0;
 
 static BOOL MTPHighRefreshActive(void) {
-    return gMaxFPS > 60 && [MTPPrefs boolForKey:MTPKeyHighRefreshEnabled] && ![NSProcessInfo processInfo].lowPowerModeEnabled;
+    return MaxFPS() > 60 && [MTPPrefs boolForKey:MTPKeyHighRefreshEnabled] && ![NSProcessInfo processInfo].lowPowerModeEnabled;
 }
 
 static BOOL TargetLooksLikeVideoPipeline(id target) {
@@ -93,17 +100,17 @@ NSString *MTPRefreshRateStatus(void) {
     NSString *plistNote = pad ? @"iPad (no Info.plist key required)"
                               : (plistKey ? @"CADisableMinimumFrameDurationOnPhone present" : @"CADisableMinimumFrameDurationOnPhone MISSING — iOS caps app at 60Hz");
     return [NSString stringWithFormat:@"Screen max %ldHz; %@; %lu UI links lifted, %lu video links left untouched%@",
-            (long)gMaxFPS, plistNote, (unsigned long)gLiftedLinks, (unsigned long)gSkippedVideoLinks,
+            (long)MaxFPS(), plistNote, (unsigned long)gLiftedLinks, (unsigned long)gSkippedVideoLinks,
             [NSProcessInfo processInfo].lowPowerModeEnabled ? @"; Low Power Mode active" : @""];
 }
 
 void MTPInstallRefreshRate(void) {
     MTPCompat *compat = [MTPCompat shared];
-    gMaxFPS = [UIScreen mainScreen].maximumFramesPerSecond;
-    if (!compat.proMotionDisplay) {
-        [compat setStatus:@"Inactive: display is 60Hz (no ProMotion)" forModule:MTPModuleRefreshRate];
-        return;
-    }
+    // ProMotion is checked at runtime (MTPHighRefreshActive): hooks are no-ops
+    // on 60Hz screens.
+    [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidFinishLaunchingNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
+        MaxFPS();
+    }];
     if (![compat mayInstallModule:MTPModuleRefreshRate]) {
         [compat setStatus:@"Disabled: unverified YouTube version" forModule:MTPModuleRefreshRate];
         return;

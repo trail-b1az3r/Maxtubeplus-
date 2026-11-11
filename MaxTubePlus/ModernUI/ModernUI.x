@@ -11,7 +11,6 @@
 // +[YTPTabHelper applyCustomTabsToPivotBarRenderer:], so YTPlus's tab editor
 // remains the source of truth for order/visibility.
 
-#import <substrate.h>
 #import <objc/runtime.h>
 #import <mach-o/dyld.h>
 #import "MTPTabLayout.h"
@@ -47,8 +46,7 @@ static void HookConsumer(Class cls, SEL selector) {
         }
         if (original) original(self, selector, argument);
     });
-    MSHookMessageEx(cls, selector, replacement, (IMP *)&original);
-    MTPLog(@"modernui: hooked consumer %@", key);
+    if (MTPHookMethod(cls, selector, replacement, (IMP *)&original)) MTPLog(@"modernui: hooked consumer %@", key);
 }
 
 static BOOL ImageBelongsToApp(const char *imageName) {
@@ -71,36 +69,46 @@ static void DiscoverPivotConsumers(void) {
     });
     NSSet *excluded = [NSSet setWithArray:@[@"YTPivotBarView", @"YTPivotBarItemView", @"YTPivotBarIndicatorView",
                                             @"YTIPivotBarRenderer", @"YTIPivotBarSupportedRenderers", @"YTIPivotBarItemRenderer"]];
+    // objc_copyClassNamesForImage returns names WITHOUT realizing classes.
+    // (objc_copyClassList would realize every class in the process at launch,
+    // which is slow and can crash on Swift classes with unavailable superclasses.)
     unsigned int classCount = 0;
-    Class *classes = objc_copyClassList(&classCount);
     NSUInteger candidates = 0;
-    for (unsigned int i = 0; i < classCount; i++) {
-        Class cls = classes[i];
-        const char *rawName = class_getName(cls);
-        // Objective-C (YT*) and Swift (mangled _Tt*) classes are both considered.
-        if (strncmp(rawName, "YT", 2) != 0 && strncmp(rawName, "_Tt", 3) != 0) continue;
-        if (!strstr(rawName, "PivotBar") && !strstr(rawName, "TabBar") && !strstr(rawName, "Guide")) continue;
-        if (strncmp(rawName, "YTI", 3) == 0) continue; // protobuf messages, not consumers
-        NSString *name = @(rawName);
-        if ([excluded containsObject:name]) continue;
-        if (!ImageBelongsToApp(class_getImageName(cls))) continue;
-        candidates++;
-        unsigned int methodCount = 0;
-        Method *methods = class_copyMethodList(cls, &methodCount);
-        for (unsigned int m = 0; m < methodCount; m++) {
-            NSString *selName = NSStringFromSelector(method_getName(methods[m]));
-            if (![selectorNames containsObject:selName]) continue;
-            char returnType[8] = {0};
-            method_getReturnType(methods[m], returnType, sizeof(returnType));
-            if (method_getNumberOfArguments(methods[m]) != 3 || returnType[0] != 'v') continue;
-            char argType[8] = {0};
-            method_getArgumentType(methods[m], 2, argType, sizeof(argType));
-            if (argType[0] != '@') continue;
-            HookConsumer(cls, method_getName(methods[m]));
+    NSString *bundlePath = [NSBundle mainBundle].bundlePath;
+    uint32_t imageCount = _dyld_image_count();
+    for (uint32_t image = 0; image < imageCount; image++) {
+        const char *imagePath = _dyld_get_image_name(image);
+        if (!imagePath || ![@(imagePath) hasPrefix:bundlePath] || !ImageBelongsToApp(imagePath)) continue;
+        unsigned int nameCount = 0;
+        const char **names = objc_copyClassNamesForImage(imagePath, &nameCount);
+        classCount += nameCount;
+        for (unsigned int i = 0; i < nameCount; i++) {
+            const char *rawName = names[i];
+            // Objective-C (YT*) and Swift (mangled _Tt*) classes are both considered.
+            if (strncmp(rawName, "YT", 2) != 0 && strncmp(rawName, "_Tt", 3) != 0) continue;
+            if (!strstr(rawName, "PivotBar") && !strstr(rawName, "TabBar") && !strstr(rawName, "Guide")) continue;
+            if (strncmp(rawName, "YTI", 3) == 0) continue; // protobuf messages, not consumers
+            if ([excluded containsObject:@(rawName)]) continue;
+            Class cls = objc_getClass(rawName);
+            if (!cls) continue;
+            candidates++;
+            unsigned int methodCount = 0;
+            Method *methods = class_copyMethodList(cls, &methodCount);
+            for (unsigned int m = 0; m < methodCount; m++) {
+                NSString *selName = NSStringFromSelector(method_getName(methods[m]));
+                if (![selectorNames containsObject:selName]) continue;
+                char returnType[8] = {0};
+                method_getReturnType(methods[m], returnType, sizeof(returnType));
+                if (method_getNumberOfArguments(methods[m]) != 3 || returnType[0] != 'v') continue;
+                char argType[8] = {0};
+                method_getArgumentType(methods[m], 2, argType, sizeof(argType));
+                if (argType[0] != '@') continue;
+                HookConsumer(cls, method_getName(methods[m]));
+            }
+            free(methods);
         }
-        free(methods);
+        free(names);
     }
-    free(classes);
     MTPLog(@"modernui: scanned %u classes, %lu pivot/tab candidates, %lu consumers hooked",
            classCount, (unsigned long)candidates, (unsigned long)gHookedConsumers.count);
 }
@@ -108,7 +116,11 @@ static void DiscoverPivotConsumers(void) {
 %group ModernUIClassic
 %hook YTPivotBarView
 - (void)setRenderer:(id)renderer {
-    [[MTPTabLayout shared] applyToPivotBarRenderer:renderer source:@"YTPivotBarView" applyYTPlus:YES];
+    // YTPlus hooks this same method and runs its own tab helper here, so it is
+    // NOT invoked a second time (re-entrant double application on the first
+    // layout is a crash risk). Only floating-menu consumers, which YTPlus
+    // does not reach, get YTPTabHelper applied by MaxTubePlus.
+    [[MTPTabLayout shared] applyToPivotBarRenderer:renderer source:@"YTPivotBarView" applyYTPlus:NO];
     %orig;
 }
 %end

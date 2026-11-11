@@ -5,18 +5,19 @@
 # Usage: scripts/make_dylib.sh INPUT OUTPUT [--linkage rpath|rootful|rootless]
 #   INPUT    a MaxTubePlus .deb or a built MaxTubePlus.dylib
 #   OUTPUT   path of the dylib to write
-#   --linkage how the tweak finds Cydia Substrate (the hooking library):
-#     rpath    (default) @rpath/CydiaSubstrate.framework/CydiaSubstrate and
-#              install name @rpath/MaxTubePlus.dylib — for sideloading; the
-#              injector must also bundle CydiaSubstrate.framework (ElleKit).
-#     rootful  /Library/Frameworks/CydiaSubstrate.framework/CydiaSubstrate
-#     rootless /var/jb/Library/Frameworks/CydiaSubstrate.framework/CydiaSubstrate
+#   --linkage install name (and, for older builds, the Substrate path):
+#     rpath    (default) @rpath/MaxTubePlus.dylib — for sideloading
+#     rootful  /Library/MobileSubstrate/DynamicLibraries/MaxTubePlus.dylib
+#     rootless /var/jb/Library/MobileSubstrate/DynamicLibraries/MaxTubePlus.dylib
+#   MaxTubePlus hooks with the Objective-C runtime only and does not link
+#   Cydia Substrate, so it needs no Substrate/ElleKit framework. If an older
+#   build still references Substrate, that reference is rewritten to match.
 #
 # Needs otool, install_name_tool and ldid (from PATH or $THEOS's toolchain),
 # plus dpkg-deb when INPUT is a .deb.
 set -euo pipefail
 
-usage() { sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+usage() { sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 [ $# -ge 2 ] || usage
 INPUT="$1"; OUTPUT="$2"; shift 2
 LINKAGE=rpath
@@ -66,9 +67,10 @@ cp "$SRC" "$WORK/MaxTubePlus.dylib"
 DYLIB="$WORK/MaxTubePlus.dylib"
 
 # Rewrite whatever Substrate reference the build produced.
-CURRENT=$("$OTOOL" -L "$DYLIB" | awk '/CydiaSubstrate|libsubstrate|ellekit/ {print $1}' | head -n1)
-[ -n "$CURRENT" ] || fail "no Cydia Substrate dependency found in $SRC (not a MaxTubePlus build?)"
-[ "$CURRENT" = "$SUBSTRATE" ] || "$INT" -change "$CURRENT" "$SUBSTRATE" "$DYLIB"
+CURRENT=$("$OTOOL" -L "$DYLIB" | sed '1,2d' | awk '/CydiaSubstrate|libsubstrate|ellekit/ {print $1}' | head -n1)
+if [ -n "$CURRENT" ]; then
+  [ "$CURRENT" = "$SUBSTRATE" ] || "$INT" -change "$CURRENT" "$SUBSTRATE" "$DYLIB"
+fi
 "$INT" -id "$INSTALL_NAME" "$DYLIB"
 
 # install_name_tool invalidates the signature; re-sign ad hoc (the injector
@@ -77,7 +79,11 @@ CURRENT=$("$OTOOL" -L "$DYLIB" | awk '/CydiaSubstrate|libsubstrate|ellekit/ {pri
 
 # Verify the result instead of trusting the tools.
 LINKS=$("$OTOOL" -L "$DYLIB")
-echo "$LINKS" | grep -qF "$SUBSTRATE" || fail "substrate path was not rewritten"
+if [ -n "$CURRENT" ]; then echo "$LINKS" | grep -qF "$SUBSTRATE" || fail "substrate path was not rewritten"; fi
+# Every non-system dependency must be something iOS provides; anything else
+# would make dyld abort YouTube at launch.
+UNEXPECTED=$(echo "$LINKS" | sed '1,2d' | awk '{print $1}' | grep -vE '^(/System/Library/|/usr/lib/)' | grep -vF "$SUBSTRATE" || true)
+[ -z "$UNEXPECTED" ] || fail "unexpected load-time dependencies: $UNEXPECTED"
 echo "$LINKS" | sed -n '2p' | grep -qF "$INSTALL_NAME" || fail "install name was not set"
 "$OTOOL" -hv "$DYLIB" | grep -q 'ARM64' || fail "output is not an arm64 dylib"
 "$LDID" -h "$DYLIB" >/dev/null 2>&1 || fail "output is not code-signed"

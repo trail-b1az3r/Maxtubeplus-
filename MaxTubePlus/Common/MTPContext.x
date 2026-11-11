@@ -7,7 +7,6 @@
 //  * menu sheet decoration (adding/wrapping actions).
 // All hooks are installed only when their class/selector exists.
 
-#import <substrate.h>
 #import <objc/runtime.h>
 #import <objc/message.h>
 #import "MTPContext.h"
@@ -291,7 +290,7 @@ static void HookSheetPresentation(NSString *className) {
     SEL one = NSSelectorFromString(@"presentFromView:");
     if (class_getInstanceMethod(cls, one)) {
         __block void (*orig)(id, SEL, id) = NULL;
-        MSHookMessageEx(cls, one, imp_implementationWithBlock(^(id self, UIView *view) {
+        MTPHookMethod(cls, one, imp_implementationWithBlock(^(id self, UIView *view) {
             RunDecorators(self, view);
             orig(self, one, view);
         }), (IMP *)&orig);
@@ -299,7 +298,7 @@ static void HookSheetPresentation(NSString *className) {
     SEL two = NSSelectorFromString(@"presentFromView:completion:");
     if (class_getInstanceMethod(cls, two)) {
         __block void (*orig2)(id, SEL, id, id) = NULL;
-        MSHookMessageEx(cls, two, imp_implementationWithBlock(^(id self, UIView *view, id completion) {
+        MTPHookMethod(cls, two, imp_implementationWithBlock(^(id self, UIView *view, id completion) {
             RunDecorators(self, view);
             orig2(self, two, view, completion);
         }), (IMP *)&orig2);
@@ -307,7 +306,7 @@ static void HookSheetPresentation(NSString *className) {
     SEL three = NSSelectorFromString(@"presentFromViewController:animated:completion:");
     if (class_getInstanceMethod(cls, three)) {
         __block void (*orig3)(id, SEL, id, BOOL, id) = NULL;
-        MSHookMessageEx(cls, three, imp_implementationWithBlock(^(id self, UIViewController *vc, BOOL animated, id completion) {
+        MTPHookMethod(cls, three, imp_implementationWithBlock(^(id self, UIViewController *vc, BOOL animated, id completion) {
             RunDecorators(self, nil);
             orig3(self, three, vc, animated, completion);
         }), (IMP *)&orig3);

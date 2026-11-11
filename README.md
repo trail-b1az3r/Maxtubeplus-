@@ -28,7 +28,7 @@ All settings live in **YouTube › Settings › MaxTubePlus**, in eight pages: t
   - *Integrate MaxTubePlus* is on by default.
   - The workflow checks the input app's bundle ID, version and decryption, patches Info.plist, injects the tweaks, and then checks that every built tweak's dylib is actually loaded by the app. Any failed check stops the build.
 - **Standalone .dylib:** run *Actions › Create MaxTubePlus .dylib* to get `MaxTubePlus.dylib` without supplying an IPA, and inject it yourself next to YTPlus with Feather, ESign, Sideloadly, TrollFools or cyan.
-  - Choose `rpath` for sideloading. Your injector must also bundle CydiaSubstrate.framework / ElleKit, which most do automatically.
+  - Choose `rpath` for sideloading. MaxTubePlus does not depend on Cydia Substrate or ElleKit (YTPlus still needs one, which injectors add).
   - Choose `rootful` or `rootless` for jailbreaks.
   - Locally: `scripts/make_dylib.sh MaxTubePlus/packages/*.deb MaxTubePlus.dylib --linkage rpath`.
   - CI artifacts and IPA releases also include the dylib.

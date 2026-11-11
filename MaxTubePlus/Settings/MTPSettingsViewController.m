@@ -11,6 +11,8 @@
 extern NSString *MTPRefreshRateStatus(void);
 extern NSString *MTPDeArrowStatus(void);
 extern NSString *MTPAdvancedSearchStatus(void);
+extern BOOL MTPSafeModeActive(void);
+extern void MTPLeaveSafeMode(void);
 
 typedef NS_ENUM(NSInteger, MTPRowKind) { MTPRowSwitch, MTPRowChoice, MTPRowAction, MTPRowInfo };
 
@@ -177,8 +179,18 @@ static NSString *JoinTabs(NSArray<NSString *> *tabs) {
                 Section(@"Controls", nil, controls),
             ];
         }
-        case MTPSettingsGroupGeneral:
-            return @[
+        case MTPSettingsGroupGeneral: {
+            NSMutableArray *sections = [NSMutableArray array];
+            if (MTPSafeModeActive()) {
+                [sections addObject:Section(@"Safe mode", @"YouTube closed during startup twice in a row after MaxTubePlus loaded, so all MaxTubePlus features were switched off to keep YouTube usable. Please report the crash log (Settings › Privacy & Security › Analytics & Improvements › Analytics Data › YouTube-…). Leaving safe mode re-enables everything on the next launch; if it crashes again, safe mode turns back on automatically.", @[
+                    ({ MTPRow *r = Action(@"Leave safe mode (restart YouTube afterwards)", ^(UIViewController *from) {
+                        MTPLeaveSafeMode();
+                        MTPToast(@"MaxTubePlus: safe mode off. Close and reopen YouTube.");
+                        if ([from respondsToSelector:@selector(rebuild)]) [(MTPSettingsViewController *)from rebuild];
+                    }); r.destructive = YES; r; }),
+                ])];
+            }
+            [sections addObjectsFromArray:@[
                 Section(@"Compatibility", [NSString stringWithFormat:@"MaxTubePlus targets YouTube %@. On other 21.x builds every hook checks that its class and selector exist and stays inactive otherwise. On older or unknown builds all modules are disabled unless you force them.", MTP_TARGET_YT_VERSION], @[
                     Info(@"Environment", ^{ return compat.summary; }),
                     Switch(@"Force-enable on unverified YouTube versions", MTPKeyForceUnverifiedVersion),
@@ -192,7 +204,9 @@ static NSString *JoinTabs(NSArray<NSString *> *tabs) {
                         [from presentViewController:a animated:YES completion:nil];
                     }); r.destructive = YES; r; }),
                 ]),
-            ];
+            ]];
+            return sections;
+        }
         case MTPSettingsGroupAbout:
             return @[
                 Section(@"MaxTubePlus", nil, @[

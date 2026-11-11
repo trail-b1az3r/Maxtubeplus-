@@ -98,6 +98,13 @@ typedef NS_ENUM(NSInteger, MTPModule) {
 - (NSString *)summary;
 @end
 
+/// Replaces an instance method using only the Objective-C runtime (no Cydia
+/// Substrate dependency, so the dylib loads in any injector). If the method is
+/// inherited, an override is added to `cls` that forwards to the inherited
+/// implementation. Returns NO (and changes nothing) if the selector is not
+/// implemented anywhere in the hierarchy.
+BOOL MTPHookMethod(Class cls, SEL selector, IMP replacement, IMP _Nullable *_Nonnull original);
+
 /// Returns an Objective-C class only if it exists *and* responds to all the
 /// listed instance selectors. Used to fail safely on changed YouTube builds.
 Class _Nullable MTPClassWithSelectors(NSString *className, NSArray<NSString *> *selectors);
