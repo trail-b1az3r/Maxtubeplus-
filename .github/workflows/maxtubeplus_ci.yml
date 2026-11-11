@@ -1,0 +1,105 @@
+name: MaxTubePlus CI
+
+# Compiles the MaxTubePlus tweak and runs tests/static checks on every push and
+# pull request. No YouTube IPA is needed for this workflow.
+
+on:
+  push:
+    paths:
+      - "MaxTubePlus/**"
+      - "Tests/**"
+      - "scripts/**"
+      - ".github/workflows/**"
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: mtp-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  THEOS_REF: 9bc73406cf80b711ef4d02c15ff1dedc4478a275
+
+jobs:
+  checks:
+    name: Static checks & unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install PyYAML
+        run: python3 -m pip install --quiet pyyaml
+      - name: Run static checks
+        run: scripts/static_checks.sh
+
+  build-linux:
+    name: Build (Linux toolchain)
+    runs-on: ubuntu-latest
+    needs: checks
+    steps:
+      - uses: actions/checkout@v6
+      - name: Cache Theos
+        id: theos
+        uses: actions/cache@v5
+        with:
+          path: theos/
+          key: theos-linux-${{ env.THEOS_REF }}-v1
+      - name: Setup Theos, iOS toolchain and SDK
+        if: steps.theos.outputs.cache-hit != 'true'
+        run: |
+          git clone --quiet --recursive https://github.com/theos/theos.git theos
+          git -C theos checkout --quiet "$THEOS_REF" && git -C theos submodule update --quiet --init --recursive
+          mkdir -p theos/toolchain/linux
+          curl -sSL https://github.com/L1ghtmann/llvm-project/releases/latest/download/iOSToolchain-x86_64.tar.xz | tar -xJ -C theos/toolchain
+          git clone --quiet -n --depth=1 --filter=tree:0 https://github.com/theos/sdks/
+          (cd sdks && git sparse-checkout set --no-cone iPhoneOS16.5.sdk && git checkout --quiet)
+          mv sdks/*.sdk theos/sdks/
+      - name: Build package
+        run: |
+          set -o pipefail
+          export THEOS="$PWD/theos"
+          make -C MaxTubePlus clean package DEBUG=0 FINALPACKAGE=1 2>&1 | tee build-linux.log
+          ls MaxTubePlus/packages/*.deb
+      - uses: actions/upload-artifact@v7
+        with:
+          name: maxtubeplus-deb-linux
+          path: |
+            MaxTubePlus/packages/*.deb
+            build-linux.log
+
+  build-macos:
+    name: Build (macOS / Xcode toolchain)
+    runs-on: macos-latest
+    needs: checks
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install dependencies
+        run: |
+          brew install make ldid dpkg
+          echo "$(brew --prefix make)/libexec/gnubin" >> "$GITHUB_PATH"
+      - name: Cache Theos
+        id: theos
+        uses: actions/cache@v5
+        with:
+          path: theos/
+          key: theos-macos-${{ env.THEOS_REF }}-v1
+      - name: Setup Theos and SDK
+        if: steps.theos.outputs.cache-hit != 'true'
+        run: |
+          git clone --quiet --recursive https://github.com/theos/theos.git theos
+          git -C theos checkout --quiet "$THEOS_REF" && git -C theos submodule update --quiet --init --recursive
+          git clone --quiet -n --depth=1 --filter=tree:0 https://github.com/theos/sdks/
+          (cd sdks && git sparse-checkout set --no-cone iPhoneOS16.5.sdk && git checkout --quiet)
+          mv sdks/*.sdk theos/sdks/
+      - name: Build package
+        run: |
+          set -o pipefail
+          export THEOS="$PWD/theos"
+          make -C MaxTubePlus clean package DEBUG=0 FINALPACKAGE=1 2>&1 | tee build-macos.log
+          ls MaxTubePlus/packages/*.deb
+          dpkg-deb -c MaxTubePlus/packages/*.deb
+      - uses: actions/upload-artifact@v7
+        with:
+          name: maxtubeplus-deb-macos
+          path: |
+            MaxTubePlus/packages/*.deb
+            build-macos.log

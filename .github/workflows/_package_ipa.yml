@@ -1,0 +1,174 @@
+name: Package IPA (Helper)
+
+# Injects the debs produced by _build_tweaks.yml into a decrypted YouTube IPA,
+# verifies the result and publishes it. Every check fails the workflow: an IPA
+# missing a requested tweak is never published.
+
+on:
+  workflow_call:
+    inputs:
+      tweak_version:
+        type: string
+        required: true
+      display_name:
+        type: string
+        required: false
+        default: "YouTube"
+      bundle_id:
+        type: string
+        required: false
+        default: "com.google.ios.youtube"
+      enable_maxtubeplus:
+        type: boolean
+        required: false
+        default: true
+      maxtubeplus_extras:
+        description: "true when any MaxTube extra tweak was selected (release naming)"
+        type: boolean
+        required: false
+        default: false
+      expected_yt_version:
+        type: string
+        required: false
+        default: "21.42.4"
+      allow_other_version:
+        type: boolean
+        required: false
+        default: false
+      release_tag:
+        description: "Publish to this tag (non-draft). Empty: draft release named after the build."
+        type: string
+        required: false
+        default: ""
+    secrets:
+      IPA_URL:
+        description: "URL of a decrypted YouTube IPA you are authorised to use"
+        required: true
+
+jobs:
+  package:
+    name: Package IPA
+    runs-on: macos-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout MaxTubePlus
+        uses: actions/checkout@v6
+
+      - name: Download built debs
+        uses: actions/download-artifact@v8
+        with:
+          name: built-debs
+          path: ${{ github.workspace }}/debs
+
+      - name: Install tools
+        run: |
+          brew install dpkg
+          pipx install --force https://github.com/asdfzxcvbn/pyzule-rw/archive/main.zip
+
+      - name: Download IPA
+        env:
+          IPA_URL: ${{ secrets.IPA_URL }}
+        run: |
+          if [ -z "$IPA_URL" ]; then
+            echo "::error::No IPA URL provided. Pass ipa_url (manual run) or set the YT_IPA_URL repository secret (tag releases)."
+            exit 1
+          fi
+          wget "$IPA_URL" --no-verbose -O youtube.ipa || { echo "::error::Downloading the IPA failed (URL expired or unreachable)."; exit 1; }
+          file_type=$(file --mime-type -b youtube.ipa)
+          if [[ "$file_type" != "application/x-ios-app" && "$file_type" != "application/zip" ]]; then
+            echo "::error::The downloaded file is not an IPA. Detected type: $file_type."
+            exit 1
+          fi
+
+      - name: Verify input app (bundle, version, decryption)
+        run: |
+          args=(inspect youtube.ipa --expect-bundle com.google.ios.youtube --expect-version "${{ inputs.expected_yt_version }}" --require-decrypted --github-env "$GITHUB_ENV")
+          if [ "${{ inputs.allow_other_version }}" = "true" ]; then args+=(--allow-other-version); fi
+          python3 scripts/ipa_tool.py "${args[@]}"
+
+      - name: Patch Info.plist (ProMotion, Files access for downloads)
+        if: ${{ inputs.enable_maxtubeplus }}
+        run: |
+          rm -rf ipa_work && mkdir ipa_work && unzip -q youtube.ipa -d ipa_work
+          plist=$(ls -d ipa_work/Payload/*.app)/Info.plist
+          python3 scripts/ipa_tool.py patch-plist "$plist"
+          rm youtube.ipa && (cd ipa_work && zip -qry ../youtube.ipa Payload) && rm -rf ipa_work
+
+      - name: Determine release name
+        run: |
+          if [ "${{ inputs.enable_maxtubeplus }}" = "true" ]; then prefix=MaxTubePlus
+          elif [ "${{ inputs.maxtubeplus_extras }}" = "true" ]; then prefix=MaxTube
+          else prefix=YTPlus; fi
+          echo "RELEASE_PREFIX=$prefix" >> "$GITHUB_ENV"
+          echo "IPA_NAME=${prefix}_${YT_VERSION}_${{ inputs.tweak_version }}.ipa" >> "$GITHUB_ENV"
+
+      - name: Inject tweaks into IPA
+        run: |
+          set -o pipefail
+          tweaks="debs/ytplus.deb"
+          for f in debs/*.deb; do
+            [ "$f" = "debs/ytplus.deb" ] && continue
+            tweaks="$tweaks $f"
+          done
+          [ -d debs/OpenYoutubeSafariExtension.appex ] && tweaks="$tweaks debs/OpenYoutubeSafariExtension.appex"
+          echo "Injecting: $tweaks"
+          cyan -i youtube.ipa -o "$IPA_NAME" -uwef $tweaks -n "${{ inputs.display_name }}" -b "${{ inputs.bundle_id }}" 2>&1 | tee cyan.log
+
+      - name: Verify every requested modification is in the IPA
+        run: |
+          required=()
+          for f in debs/*.deb; do
+            while read -r dylib; do required+=(--dylib "$dylib"); done < <(dpkg-deb -c "$f" | grep -oE '[^/]+\.dylib$' | sort -u)
+          done
+          if [ "${{ inputs.enable_maxtubeplus }}" = "true" ]; then
+            printf '%s\n' "${required[@]}" | grep -qx 'MaxTubePlus.dylib' || { echo "::error::maxtubeplus.deb was not built"; exit 1; }
+            required+=(--plist-key CADisableMinimumFrameDurationOnPhone --plist-key UIFileSharingEnabled)
+          fi
+          python3 scripts/ipa_tool.py verify "$IPA_NAME" "${required[@]}"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.RELEASE_PREFIX }}-ipa
+          path: ${{ env.IPA_NAME }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: package-logs
+          path: cyan.log
+          if-no-files-found: ignore
+
+      - name: Prepare release notes
+        run: |
+          template=.github/RELEASE_TEMPLATE/Release_Notes.md
+          [ "${{ inputs.enable_maxtubeplus }}" = "true" ] && template=.github/RELEASE_TEMPLATE/Release_Notes_MaxTubePlus.md
+          [ "$YT_VERSION" = "20.21.6" ] && template=.github/RELEASE_TEMPLATE/Release_Notes_YT20.21.6.md
+          sed "s/%yt_version%/$YT_VERSION/g; s/%ytlite_version%/${{ inputs.tweak_version }}/g; s/%release_prefix%/$RELEASE_PREFIX/g" "$template" > release_notes.md
+          {
+            echo
+            echo "### Included packages"
+            for f in debs/*.deb; do echo "- \`$(dpkg-deb -f "$f" Package)\` $(dpkg-deb -f "$f" Version)"; done
+            echo
+            echo "_Built by run [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) from \`${GITHUB_SHA::7}\`._"
+          } >> release_notes.md
+
+      - name: Upload to GitHub Releases
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ inputs.release_tag != '' && inputs.release_tag || format('{0}_{1}({2})', inputs.tweak_version, env.YT_VERSION, github.run_number) }}
+          name: ${{ env.RELEASE_PREFIX }} ${{ inputs.tweak_version }} and ${{ env.YT_VERSION }}
+          files: |
+            ${{ env.IPA_NAME }}
+            debs/maxtubeplus.deb
+          draft: ${{ inputs.release_tag == '' }}
+          body_path: release_notes.md
+          fail_on_unmatched_files: false
+
+      - name: Output Release URL
+        run: echo "::notice::Build completed! Release available at https://github.com/${{ github.repository }}/releases"
