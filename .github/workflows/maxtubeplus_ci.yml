@@ -59,12 +59,23 @@ jobs:
           export THEOS="$PWD/theos"
           make -C MaxTubePlus clean package DEBUG=0 FINALPACKAGE=1 2>&1 | tee build-linux.log
           ls MaxTubePlus/packages/*.deb
+      - name: Create standalone dylibs (all linkages)
+        run: |
+          export THEOS="$PWD/theos"
+          deb=$(ls MaxTubePlus/packages/*.deb | head -n1)
+          for linkage in rpath rootful rootless; do
+            scripts/make_dylib.sh "$deb" "dylib/$linkage/MaxTubePlus.dylib" --linkage "$linkage"
+          done
       - uses: actions/upload-artifact@v7
         with:
           name: maxtubeplus-deb-linux
           path: |
             MaxTubePlus/packages/*.deb
             build-linux.log
+      - uses: actions/upload-artifact@v7
+        with:
+          name: maxtubeplus-dylib
+          path: dylib/
 
   build-macos:
     name: Build (macOS / Xcode toolchain)

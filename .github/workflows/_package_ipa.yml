@@ -64,7 +64,7 @@ jobs:
 
       - name: Install tools
         run: |
-          brew install dpkg
+          brew install dpkg ldid
           pipx install --force https://github.com/asdfzxcvbn/pyzule-rw/archive/main.zip
 
       - name: Download IPA
@@ -128,6 +128,10 @@ jobs:
           fi
           python3 scripts/ipa_tool.py verify "$IPA_NAME" "${required[@]}"
 
+      - name: Create standalone MaxTubePlus.dylib
+        if: ${{ inputs.enable_maxtubeplus }}
+        run: scripts/make_dylib.sh debs/maxtubeplus.deb MaxTubePlus.dylib --linkage rpath
+
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v7
         with:
@@ -166,6 +170,7 @@ jobs:
           files: |
             ${{ env.IPA_NAME }}
             debs/maxtubeplus.deb
+            MaxTubePlus.dylib
           draft: ${{ inputs.release_tag == '' }}
           body_path: release_notes.md
           fail_on_unmatched_files: false
