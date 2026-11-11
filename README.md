@@ -1,3 +1,49 @@
+# MaxTubePlus
+
+MaxTubePlus is a fork of [MaxTube](https://github.com/Mark02-2012/MaxTube) by Mark02-2012. It keeps everything MaxTube does (YTPlus/YTLite by [dayanch96](https://github.com/dayanch96/YTLite) plus the MaxTube tweak selection and workflows) and adds one modular tweak, **`MaxTubePlus/`**, built and injected by the same GitHub Actions. Target: **YouTube 21.42.4**.
+
+| Module | What it does | Code |
+|---|---|---|
+| Background Downloads | Background `NSURLSession` queue with persistent state, pause, resume, cancel and retry with back-off, recovery after the app is closed, quality and audio-only options, notifications, and storage management in the Files app. It runs next to YTPlus's own downloader, which is left untouched. | `MaxTubePlus/Downloads` |
+| DeArrow | Native [DeArrow](https://dearrow.ajay.app) client with no WebView. Title and thumbnail replacement can be switched on and off separately. Results are cached on disk. If a video has no submission, the original is kept. Attribution is shown in settings. | `MaxTubePlus/DeArrow` |
+| 120Hz Playback | Lifts 60Hz caps on interface display links on ProMotion devices, and the build adds `CADisableMinimumFrameDurationOnPhone`. Video frame pacing is left alone, and the module turns itself off on 60Hz screens. | `MaxTubePlus/RefreshRate` |
+| Creator Suppression | Learns from repeated "Don't recommend channel" / "Show fewer…". The threshold is configurable but at least 2, and old interactions can decay. Suppressed creators are hidden on Home, Shorts, Explore and Watch next, but stay visible in search and on their channel. There is a management screen with per-creator restore. | `MaxTubePlus/CreatorSuppression` |
+| Advanced Search | Filters for minimum likes, a duration range slider, upload date and recency. Filters combine, can be removed one at a time or all at once, and survive changing the sort (relevance or recency). A separate commented-videos mode searches comments imported from Google Takeout. | `MaxTubePlus/AdvancedSearch` |
+| Modern UI Compatibility | YTPlus dock customization and the Subscriptions tab work with YouTube's newer floating menu, without spoofing iOS 17. See [docs/MODERN_UI_INVESTIGATION.md](docs/MODERN_UI_INVESTIGATION.md). | `MaxTubePlus/ModernUI` |
+
+All settings live in **YouTube › Settings › MaxTubePlus**, in eight pages: the six modules, General and About. Every page shows the module's live hook status.
+
+**Layout:**
+- `MaxTubePlus/Core`: portable C logic with unit tests.
+- `MaxTubePlus/Common`: preferences, compatibility gating, and shared hooks.
+- One folder per module, plus `Settings`.
+- `Tests/` and `scripts/` (`ipa_tool.py`, `static_checks.sh`).
+- Workflows: `maxtubeplus_ci.yml`, `_build_tweaks.yml`, `_package_ipa.yml`, `main.yml` and `release.yml`.
+
+**Version safety.** YouTube 21.42.4 is the verified target. On other 21.x builds every hook first checks that its class and selector exist, and stays inactive if they don't. On older or unknown builds all modules switch off unless you force them in General.
+
+### Building
+- **Manual build:** run *Actions › Create MaxTubePlus, MaxTube or YouTube Plus app*.
+  - Give it a URL to a **decrypted YouTube 21.42.4 IPA that you are authorized to use**.
+  - *Integrate MaxTubePlus* is on by default.
+  - The workflow checks the input app's bundle ID, version and decryption, patches Info.plist, injects the tweaks, and then checks that every built tweak's dylib is actually loaded by the app. Any failed check stops the build.
+- **Release:** push a tag such as `v1.0.0`. This needs a repository secret `YT_IPA_URL` and optionally a variable `YTPLUS_VERSION`.
+- **Never commit** IPAs, certificates or provisioning profiles. The static checks reject them.
+
+### Testing status
+What has been verified automatically (unit tests, static checks, compilation on Linux and macOS toolchains) and what still needs a device is listed in [docs/TESTING.md](docs/TESTING.md).
+
+### Credits and licensing
+- **MaxTube:** © Mark02-2012. Upstream attribution below is preserved unchanged.
+- **YTPlus/YTLite:** © dayanch96.
+- **DeArrow:** © Ajay Ramachandran. Data under CC BY-NC-SA 4.0.
+- **Like counts:** [Return YouTube Dislike](https://returnyoutubedislike.com).
+- **Not affiliated with Google or YouTube.**
+
+---
+
+*Original MaxTube README follows.*
+
 <h1 align="center">MaxTube (ex YTPlusM)</h1>
 <p align="center">
   <img src="Resources/YTPlusM.png" width="435"><br>

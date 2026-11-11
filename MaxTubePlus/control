@@ -1,0 +1,9 @@
+Package: com.maxtubeplus.tweak
+Name: MaxTubePlus
+Version: 1.0.0
+Architecture: iphoneos-arm
+Description: MaxTubePlus modules for MaxTube/YTPlus: background downloads, DeArrow, 120Hz, creator suppression, advanced search, floating-menu dock compatibility.
+Maintainer: MaxTubePlus
+Author: MaxTubePlus contributors (based on MaxTube by Mark02-2012)
+Section: Tweaks
+Depends: mobilesubstrate (>= 0.9.5000), firmware (>= 15.0)
