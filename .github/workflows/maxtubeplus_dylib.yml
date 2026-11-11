@@ -1,0 +1,113 @@
+name: Create MaxTubePlus .dylib
+
+# Builds MaxTubePlus and outputs a standalone MaxTubePlus.dylib that you can
+# inject yourself (Feather, ESign, Sideloadly, TrollFools, cyan...). No YouTube
+# IPA is needed. Inject it next to YTPlus (YTLite.dylib) for full functionality.
+
+on:
+  workflow_dispatch:
+    inputs:
+      linkage:
+        description: "Substrate linkage: rpath = sideloading (bundle CydiaSubstrate.framework / ElleKit), rootful/rootless = jailbreak"
+        type: choice
+        options:
+          - rpath
+          - rootful
+          - rootless
+        default: rpath
+        required: true
+      version:
+        description: "Version string embedded in the dylib (shown in Settings › MaxTubePlus)"
+        type: string
+        default: "1.0.0"
+        required: true
+      include_deb:
+        description: "Also output the .deb package"
+        type: boolean
+        default: false
+        required: true
+      create_release:
+        description: "Publish the dylib as a draft GitHub release"
+        type: boolean
+        default: false
+        required: true
+
+env:
+  THEOS_REF: 9bc73406cf80b711ef4d02c15ff1dedc4478a275
+
+jobs:
+  dylib:
+    name: Build MaxTubePlus.dylib
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Validate version
+        run: |
+          if ! [[ "${{ inputs.version }}" =~ ^[0-9A-Za-z.+~-]{1,32}$ ]]; then
+            echo "::error::version may only contain letters, digits and . + ~ - (max 32 chars)"
+            exit 1
+          fi
+
+      - name: Static checks and unit tests
+        run: scripts/static_checks.sh
+
+      - name: Cache Theos
+        id: theos
+        uses: actions/cache@v5
+        with:
+          path: theos/
+          key: theos-linux-${{ env.THEOS_REF }}-v1
+
+      - name: Setup Theos, iOS toolchain and SDK
+        if: steps.theos.outputs.cache-hit != 'true'
+        run: |
+          git clone --quiet --recursive https://github.com/theos/theos.git theos
+          git -C theos checkout --quiet "$THEOS_REF" && git -C theos submodule update --quiet --init --recursive
+          mkdir -p theos/toolchain/linux
+          curl -sSL https://github.com/L1ghtmann/llvm-project/releases/latest/download/iOSToolchain-x86_64.tar.xz | tar -xJ -C theos/toolchain
+          git clone --quiet -n --depth=1 --filter=tree:0 https://github.com/theos/sdks/
+          (cd sdks && git sparse-checkout set --no-cone iPhoneOS16.5.sdk && git checkout --quiet)
+          mv sdks/*.sdk theos/sdks/
+
+      - name: Build
+        run: |
+          set -o pipefail
+          export THEOS="$PWD/theos"
+          make -C MaxTubePlus clean package DEBUG=0 FINALPACKAGE=1 MTP_VERSION="${{ inputs.version }}" 2>&1 | tee build.log
+
+      - name: Create standalone dylib
+        run: |
+          export THEOS="$PWD/theos"
+          mkdir -p out
+          deb=$(ls MaxTubePlus/packages/*.deb | head -n1)
+          scripts/make_dylib.sh "$deb" "out/MaxTubePlus.dylib" --linkage "${{ inputs.linkage }}" | tee -a build.log
+          if [ "${{ inputs.include_deb }}" = "true" ]; then cp "$deb" out/; fi
+          (cd out && sha256sum * > SHA256SUMS && cat SHA256SUMS)
+
+      - name: Upload dylib
+        uses: actions/upload-artifact@v7
+        with:
+          name: MaxTubePlus-${{ inputs.version }}-${{ inputs.linkage }}
+          path: |
+            out/*
+            build.log
+          if-no-files-found: error
+
+      - name: Publish draft release
+        if: ${{ inputs.create_release }}
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: dylib-${{ inputs.version }}-${{ inputs.linkage }}-${{ github.run_number }}
+          name: MaxTubePlus ${{ inputs.version }} dylib (${{ inputs.linkage }})
+          draft: true
+          files: out/*
+          body: |
+            Standalone `MaxTubePlus.dylib` (${{ inputs.linkage }} linkage), built from `${{ github.sha }}`.
+
+            - **rpath**: for sideloading. Inject together with YTPlus (`YTLite.dylib`) and a Cydia Substrate / ElleKit framework (most injectors add it automatically).
+            - **rootful / rootless**: for jailbroken devices.
+
+            Settings appear in YouTube › Settings › MaxTubePlus. Target: YouTube 21.42.4.

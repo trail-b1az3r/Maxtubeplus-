@@ -27,6 +27,11 @@ All settings live in **YouTube › Settings › MaxTubePlus**, in eight pages: t
   - Give it a URL to a **decrypted YouTube 21.42.4 IPA that you are authorized to use**.
   - *Integrate MaxTubePlus* is on by default.
   - The workflow checks the input app's bundle ID, version and decryption, patches Info.plist, injects the tweaks, and then checks that every built tweak's dylib is actually loaded by the app. Any failed check stops the build.
+- **Standalone .dylib:** run *Actions › Create MaxTubePlus .dylib* to get `MaxTubePlus.dylib` without supplying an IPA, and inject it yourself next to YTPlus with Feather, ESign, Sideloadly, TrollFools or cyan.
+  - Choose `rpath` for sideloading. Your injector must also bundle CydiaSubstrate.framework / ElleKit, which most do automatically.
+  - Choose `rootful` or `rootless` for jailbreaks.
+  - Locally: `scripts/make_dylib.sh MaxTubePlus/packages/*.deb MaxTubePlus.dylib --linkage rpath`.
+  - CI artifacts and IPA releases also include the dylib.
 - **Release:** push a tag such as `v1.0.0`. This needs a repository secret `YT_IPA_URL` and optionally a variable `YTPLUS_VERSION`.
 - **Never commit** IPAs, certificates or provisioning profiles. The static checks reject them.
 
