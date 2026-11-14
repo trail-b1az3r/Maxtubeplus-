@@ -16,7 +16,7 @@ static const NSInteger MTPSettingsCategory = 20260; // unique, outside YouTube/Y
 @end
 
 @interface YTSettingsGroupData : NSObject
-@property (nonatomic, assign) NSInteger type;
+@property (nonatomic, readonly, assign) NSUInteger type;
 @end
 
 static void PushFromSettings(id delegate, UIViewController *page) {
@@ -52,15 +52,47 @@ static id MakeItem(NSString *title, NSString *subtitle, BOOL (^select)(id cell, 
 
 %end
 
-%group SettingsGroups
-%hook YTSettingsGroupData
-- (NSArray *)orderedCategories {
-    // YouTube 19.x+ grouped settings: add to the tweak group (type 1) once.
-    NSArray *categories = %orig;
-    if (self.type != 1 || [categories containsObject:@(MTPSettingsCategory)] || class_getClassMethod(objc_getClass("YTSettingsGroupData"), @selector(tweaks))) return categories;
+// Category placement. Current YouTube builds the settings list from groups;
+// a category only appears if some group lists it:
+//  * MaxTube builds usually include YouGroupSettings, which adds a "Tweaks"
+//    group backed by the mutable array +[YTSettingsGroupData tweaks]. Tweaks
+//    must add their category ID to that array (YTPlus/RYD are pre-listed).
+//  * Without it, the category is added to YouTube's first group (type 1) via
+//    -orderedCategoriesForGroupType: (current) and -orderedCategories (older).
+static BOOL RegisterWithYouGroupSettings(void) {
+    Class groupData = objc_getClass("YTSettingsGroupData");
+    SEL tweaksSel = NSSelectorFromString(@"tweaks");
+    if (!groupData || !class_getClassMethod(groupData, tweaksSel)) return NO;
+    NSMutableArray *tweaks = ((id (*)(id, SEL))objc_msgSend)(groupData, tweaksSel);
+    if (![tweaks isKindOfClass:[NSMutableArray class]]) return NO;
+    @synchronized (tweaks) {
+        if (![tweaks containsObject:@(MTPSettingsCategory)]) [tweaks insertObject:@(MTPSettingsCategory) atIndex:0];
+    }
+    return YES;
+}
+
+static NSArray *AddCategory(NSArray *categories, NSUInteger groupType) {
+    if (RegisterWithYouGroupSettings()) return categories; // YouGroupSettings lists it
+    if (groupType != 1 || ![categories isKindOfClass:[NSArray class]] || [categories containsObject:@(MTPSettingsCategory)]) return categories;
     NSMutableArray *mutableCategories = [categories mutableCopy];
     [mutableCategories insertObject:@(MTPSettingsCategory) atIndex:0];
     return mutableCategories;
+}
+
+%group SettingsGroupsByType
+%hook YTSettingsGroupData
+- (NSArray *)orderedCategoriesForGroupType:(NSUInteger)type {
+    return AddCategory(%orig, type);
+}
+%end
+%end
+
+%group SettingsGroupsLegacy
+%hook YTSettingsGroupData
+- (NSArray *)orderedCategories {
+    NSArray *categories = %orig;
+    NSUInteger type = [self respondsToSelector:@selector(type)] ? (NSUInteger)self.type : 0;
+    return AddCategory(categories, type);
 }
 %end
 %end
@@ -74,7 +106,8 @@ static id MakeItem(NSString *title, NSString *subtitle, BOOL (^select)(id cell, 
     @try { delegate = [self valueForKey:@"_dataDelegate"]; } @catch (__unused NSException *e) {}
     NSMutableArray *items = [NSMutableArray array];
     MTPCompat *compat = [MTPCompat shared];
-    NSString *statusLine = [NSString stringWithFormat:@"YouTube %@ · %@", compat.appVersion,
+    extern BOOL MTPSafeModeActive(void);
+    NSString *statusLine = MTPSafeModeActive() ? @"SAFE MODE — features off after a startup crash. Open General to re-enable." : [NSString stringWithFormat:@"YouTube %@ · %@", compat.appVersion,
                             compat.level == MTPCompatVerified ? @"verified" : (compat.level == MTPCompatSameMajor ? @"compatible (guarded)" : @"unverified — modules off")];
     id header = MakeItem([NSString stringWithFormat:@"MaxTubePlus %s", MTP_VERSION], statusLine, ^BOOL(id cell, NSUInteger arg) {
         PushFromSettings(delegate, [[MTPSettingsViewController alloc] initWithGroup:MTPSettingsGroupAbout]);
@@ -91,7 +124,10 @@ static id MakeItem(NSString *title, NSString *subtitle, BOOL (^select)(id cell, 
     SEL withIcon = NSSelectorFromString(@"setSectionItems:forCategory:title:icon:titleDescription:headerHidden:");
     SEL plain = NSSelectorFromString(@"setSectionItems:forCategory:title:titleDescription:headerHidden:");
     if ([delegate respondsToSelector:withIcon]) {
-        ((void (*)(id, SEL, id, NSInteger, id, id, id, BOOL))objc_msgSend)(delegate, withIcon, items, MTPSettingsCategory, @"MaxTubePlus", nil, nil, NO);
+        id icon = [NSClassFromString(@"YTIIcon") new];
+        SEL setType = NSSelectorFromString(@"setIconType:");
+        if ([icon respondsToSelector:setType]) ((void (*)(id, SEL, int))objc_msgSend)(icon, setType, 44); // YT_SETTINGS
+        ((void (*)(id, SEL, id, NSInteger, id, id, id, BOOL))objc_msgSend)(delegate, withIcon, items, MTPSettingsCategory, @"MaxTubePlus", icon, nil, NO);
     } else if ([delegate respondsToSelector:plain]) {
         ((void (*)(id, SEL, id, NSInteger, id, id, BOOL))objc_msgSend)(delegate, plain, items, MTPSettingsCategory, @"MaxTubePlus", nil, NO);
     } else {
@@ -119,6 +155,15 @@ void MTPInstallSettings(void) {
     }
     %init(Settings);
     %init(SettingsItems);
-    if (MTPClassWithSelectors(@"YTSettingsGroupData", @[@"orderedCategories", @"type"])) %init(SettingsGroups);
-    [compat setStatus:@"Section registered" forModule:MTPModuleSettings];
+    NSMutableArray *paths = [NSMutableArray array];
+    if (MTPClassWithSelectors(@"YTSettingsGroupData", @[@"orderedCategoriesForGroupType:"])) { %init(SettingsGroupsByType); [paths addObject:@"groups"]; }
+    if (MTPClassWithSelectors(@"YTSettingsGroupData", @[@"orderedCategories"])) { %init(SettingsGroupsLegacy); [paths addObject:@"legacy groups"]; }
+    // YouGroupSettings may load after MaxTubePlus; register again once launched.
+    [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidFinishLaunchingNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
+        BOOL ygs = RegisterWithYouGroupSettings();
+        [compat setStatus:[NSString stringWithFormat:@"Section registered (%@%@); also youtube://maxtubeplus", [paths componentsJoinedByString:@", "], ygs ? @", YouGroupSettings Tweaks group" : @""] forModule:MTPModuleSettings];
+    }];
+    extern void MTPRegisterSettingsURL(void);
+    MTPRegisterSettingsURL();
+    [compat setStatus:[NSString stringWithFormat:@"Section registered (%@)", [paths componentsJoinedByString:@", "]] forModule:MTPModuleSettings];
 }

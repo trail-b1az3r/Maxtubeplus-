@@ -36,6 +36,7 @@ extern NSString *const MTPKeySuppressionWindowDays;   // NSInteger (0 = never de
 
 extern NSString *const MTPKeySearchFiltersEnabled;    // BOOL
 extern NSString *const MTPKeySearchFetchLikes;        // BOOL (uses RYD API for like counts)
+extern NSString *const MTPKeySearchReplaceYouTubeFilters; // BOOL
 extern NSString *const MTPKeySearchSortMode;          // NSInteger MTPSortMode
 extern NSString *const MTPKeySearchFilterState;       // NSDictionary
 
@@ -97,6 +98,13 @@ typedef NS_ENUM(NSInteger, MTPModule) {
 - (NSString *)statusForModule:(MTPModule)module;
 - (NSString *)summary;
 @end
+
+/// Replaces an instance method using only the Objective-C runtime (no Cydia
+/// Substrate dependency, so the dylib loads in any injector). If the method is
+/// inherited, an override is added to `cls` that forwards to the inherited
+/// implementation. Returns NO (and changes nothing) if the selector is not
+/// implemented anywhere in the hierarchy.
+BOOL MTPHookMethod(Class cls, SEL selector, IMP replacement, IMP _Nullable *_Nonnull original);
 
 /// Returns an Objective-C class only if it exists *and* responds to all the
 /// listed instance selectors. Used to fail safely on changed YouTube builds.

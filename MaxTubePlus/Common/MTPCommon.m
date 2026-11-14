@@ -23,6 +23,7 @@ NSString *const MTPKeySuppressionWindowDays = @"suppression.windowDays";
 
 NSString *const MTPKeySearchFiltersEnabled = @"search.filters";
 NSString *const MTPKeySearchFetchLikes = @"search.fetchLikes";
+NSString *const MTPKeySearchReplaceYouTubeFilters = @"search.replaceYouTubeFilters";
 NSString *const MTPKeySearchSortMode = @"search.sortMode";
 NSString *const MTPKeySearchFilterState = @"search.filterState";
 
@@ -73,6 +74,7 @@ void MTPLog(NSString *format, ...) {
             MTPKeySuppressionWindowDays: @60,
             MTPKeySearchFiltersEnabled: @YES,
             MTPKeySearchFetchLikes: @YES,
+            MTPKeySearchReplaceYouTubeFilters: @YES,
             MTPKeySearchSortMode: @0,
             // Default configuration required by the project: newer floating
             // menu, no iOS 17 spoof, dock customisation + Subscriptions on.
@@ -138,16 +140,28 @@ void MTPLog(NSString *format, ...) {
         _level = mtp_compat_level(_appVersion.UTF8String, MTP_TARGET_YT_VERSION.UTF8String, MTP_MINIMUM_YT_VERSION.UTF8String);
         NSOperatingSystemVersion v = [NSProcessInfo processInfo].operatingSystemVersion;
         _realSystemVersion = [NSString stringWithFormat:@"%ld.%ld.%ld", (long)v.majorVersion, (long)v.minorVersion, (long)v.patchVersion];
-        _reportedSystemVersion = [UIDevice currentDevice].systemVersion ?: @"";
-        // A spoof (e.g. "iOS 17" to get the old navigation) only differs in
-        // the major component; patch formatting differences are not spoofs.
-        _systemVersionSpoofed = [_reportedSystemVersion integerValue] != v.majorVersion;
         _ytplusLoaded = objc_getClass("YTLUserDefaults") != Nil || dlopen("YTLite.dylib", RTLD_NOLOAD) != NULL
             || [[NSFileManager defaultManager] fileExistsAtPath:[[NSBundle mainBundle].bundlePath stringByAppendingPathComponent:@"Frameworks/YTLite.dylib"]];
-        _proMotionDisplay = [UIScreen mainScreen].maximumFramesPerSecond > 60;
+        // UIDevice/UIScreen are read lazily: this initializer runs inside the
+        // dylib constructor, before UIApplicationMain and before other tweaks
+        // (e.g. a YTPlus version spoof) have installed their hooks.
         _status = [NSMutableDictionary dictionary];
     }
     return self;
+}
+
+- (NSString *)reportedSystemVersion {
+    return [UIDevice currentDevice].systemVersion ?: @"";
+}
+
+- (BOOL)systemVersionSpoofed {
+    // A spoof (e.g. "iOS 17" to get the old navigation) differs in the major
+    // component; patch formatting differences are not spoofs.
+    return [self.reportedSystemVersion integerValue] != [NSProcessInfo processInfo].operatingSystemVersion.majorVersion;
+}
+
+- (BOOL)proMotionDisplay {
+    return [UIScreen mainScreen].maximumFramesPerSecond > 60;
 }
 
 - (BOOL)mayInstallModule:(MTPModule)module {
@@ -183,11 +197,26 @@ void MTPLog(NSString *format, ...) {
 
 - (NSString *)summary {
     return [NSString stringWithFormat:@"YouTube %@ (%@) — %@\niOS %@ (reported %@%@)\nYTPlus loaded: %@ · ProMotion: %@",
-        _appVersion, _bundleIdentifier, [self levelDescription], _realSystemVersion, _reportedSystemVersion,
-        _systemVersionSpoofed ? @", SPOOFED" : @"", _ytplusLoaded ? @"yes" : @"no", _proMotionDisplay ? @"yes" : @"no"];
+        _appVersion, _bundleIdentifier, [self levelDescription], _realSystemVersion, self.reportedSystemVersion,
+        self.systemVersionSpoofed ? @", SPOOFED" : @"", _ytplusLoaded ? @"yes" : @"no", self.proMotionDisplay ? @"yes" : @"no"];
 }
 
 @end
+
+BOOL MTPHookMethod(Class cls, SEL selector, IMP replacement, IMP *original) {
+    if (!cls || !selector || !replacement || !original) return NO;
+    Method method = class_getInstanceMethod(cls, selector); // searches superclasses
+    if (!method) return NO;
+    const char *types = method_getTypeEncoding(method);
+    IMP inherited = method_getImplementation(method);
+    // class_addMethod only succeeds when cls itself does not implement it.
+    if (class_addMethod(cls, selector, replacement, types)) {
+        *original = inherited;
+    } else {
+        *original = method_setImplementation(class_getInstanceMethod(cls, selector), replacement);
+    }
+    return *original != NULL;
+}
 
 Class MTPClassWithSelectors(NSString *className, NSArray<NSString *> *selectors) {
     Class cls = NSClassFromString(className);

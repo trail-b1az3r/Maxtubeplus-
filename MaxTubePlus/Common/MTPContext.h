@@ -39,5 +39,9 @@ typedef void (^MTPSheetDecorator)(id sheetController, MTPItemContext *context);
 @end
 
 void MTPInstallContext(void);
+void MTPContextBumpFilterGeneration(void);
+/// Used when a module knows the surface better than view-controller names
+/// (e.g. a search request was just issued).
+void MTPContextSetSurface(MTPSurface surface);
 
 NS_ASSUME_NONNULL_END

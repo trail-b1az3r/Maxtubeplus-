@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       linkage:
-        description: "Substrate linkage: rpath = sideloading (bundle CydiaSubstrate.framework / ElleKit), rootful/rootless = jailbreak"
+        description: "Install name: rpath = sideloading, rootful/rootless = jailbreak (no Substrate framework needed)"
         type: choice
         options:
           - rpath
@@ -107,7 +107,7 @@ jobs:
           body: |
             Standalone `MaxTubePlus.dylib` (${{ inputs.linkage }} linkage), built from `${{ github.sha }}`.
 
-            - **rpath**: for sideloading. Inject together with YTPlus (`YTLite.dylib`) and a Cydia Substrate / ElleKit framework (most injectors add it automatically).
+            - **rpath**: for sideloading. Inject together with YTPlus (`YTLite.dylib`). MaxTubePlus itself needs no Substrate/ElleKit framework.
             - **rootful / rootless**: for jailbroken devices.
 
             Settings appear in YouTube › Settings › MaxTubePlus. Target: YouTube 21.42.4.

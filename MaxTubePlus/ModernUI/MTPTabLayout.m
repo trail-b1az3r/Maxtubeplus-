@@ -187,6 +187,8 @@ static void FillList(MTPTabList *list, NSArray<NSString *> *identifiers) {
         }
 
         if (ytplusWillApply) {
+            // Mark first so a re-entrant call from YTPlus's own hooks is a no-op.
+            objc_setAssociatedObject(renderer, kAppliedKey, @(_generation), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
             Class helper = NSClassFromString(@"YTPTabHelper");
             ((void (*)(id, SEL, id))objc_msgSend)(helper, NSSelectorFromString(@"applyCustomTabsToPivotBarRenderer:"), renderer);
             NSMutableArray *afterYTPlus = [NSMutableArray array];

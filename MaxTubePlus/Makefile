@@ -17,11 +17,15 @@ $(TWEAK_NAME)_FILES = \
 	CreatorSuppression/MTPSuppressionStore.m CreatorSuppression/MTPSuppressedCreatorsViewController.m CreatorSuppression/CreatorSuppression.x \
 	AdvancedSearch/MTPSearchFilterState.m AdvancedSearch/MTPSearchFilterViewController.m AdvancedSearch/MTPCommentHistory.m AdvancedSearch/MTPCommentedVideosViewController.m AdvancedSearch/AdvancedSearch.x \
 	ModernUI/MTPTabLayout.m ModernUI/ModernUI.x \
-	Settings/MTPSettingsViewController.m Settings/Settings.x \
+	Settings/MTPSettingsViewController.m Settings/MTPSettingsURL.m Settings/Settings.x \
 	Tweak.x
 
 $(TWEAK_NAME)_CFLAGS = -fobjc-arc -Wall -Werror -Wno-deprecated-declarations -Wno-unused-function -DMTP_VERSION=\"$(MTP_VERSION)\"
 $(TWEAK_NAME)_CCFLAGS = -std=c99
+# Hooks use only the Objective-C runtime (Logos "internal" generator +
+# MTPHookMethod); drop the otherwise unused Cydia Substrate link so the dylib
+# loads in any injector, with or without a Substrate/ElleKit framework.
+$(TWEAK_NAME)_LDFLAGS = -Wl,-dead_strip_dylibs
 $(TWEAK_NAME)_FRAMEWORKS = UIKit Foundation AVFoundation QuartzCore UserNotifications UniformTypeIdentifiers SafariServices CoreMedia
 $(TWEAK_NAME)_LOGOS_DEFAULT_GENERATOR = internal
 

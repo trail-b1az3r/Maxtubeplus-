@@ -22,3 +22,9 @@ typedef NS_ENUM(NSInteger, MTPSettingsGroup) {
 /// Fallback dock editor used when YTPlus's own tab editor is not present.
 @interface MTPDockEditorViewController : UITableViewController
 @end
+
+/// Root page listing all groups (used by the youtube://maxtubeplus link and
+/// anywhere YouTube's own settings list is unavailable).
+@interface MTPSettingsRootViewController : UITableViewController
++ (void)presentFromTop;
+@end
