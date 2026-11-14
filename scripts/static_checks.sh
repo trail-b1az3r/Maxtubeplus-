@@ -11,6 +11,7 @@ Tests/run_tests.sh || err "core unit tests failed"
 
 echo "== IPA tool tests"
 python3 -I Tests/test_ipa_tool.py || err "ipa_tool tests failed"
+python3 -I Tests/test_fetch_ipa.py || err "fetch_ipa tests failed"
 
 echo "== Logos balance (%hook/%group vs %end)"
 for f in $(find MaxTubePlus -name '*.x'); do

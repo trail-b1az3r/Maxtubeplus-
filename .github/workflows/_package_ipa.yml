@@ -75,12 +75,8 @@ jobs:
             echo "::error::No IPA URL provided. Pass ipa_url (manual run) or set the YT_IPA_URL repository secret (tag releases)."
             exit 1
           fi
-          wget "$IPA_URL" --no-verbose -O youtube.ipa || { echo "::error::Downloading the IPA failed (URL expired or unreachable)."; exit 1; }
-          file_type=$(file --mime-type -b youtube.ipa)
-          if [[ "$file_type" != "application/x-ios-app" && "$file_type" != "application/zip" ]]; then
-            echo "::error::The downloaded file is not an IPA. Detected type: $file_type."
-            exit 1
-          fi
+          # Direct links, iCloud Drive, Google Drive and Dropbox share links.
+          python3 scripts/fetch_ipa.py "$IPA_URL" youtube.ipa
 
       - name: Verify input app (bundle, version, decryption)
         run: |

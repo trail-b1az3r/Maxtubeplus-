@@ -97,6 +97,12 @@ void MTPRunSearch(NSString *query) {
 }
 
 static void PresentPanel(NSString *via) {
+    // One tap can reach several interception paths (e.g. -sendIfEventHandlerAvailable
+    // calling -send); open the panel once.
+    static CFAbsoluteTime lastPresented = 0;
+    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    if (now - lastPresented < 1.0) return;
+    lastPresented = now;
     gLastInterception = via;
     Debug(@"YouTube filter UI intercepted via %@", via);
     dispatch_async(dispatch_get_main_queue(), ^{ [MTPSearchFilterViewController presentFromTop]; });
@@ -149,6 +155,39 @@ static BOOL ControllerIsYouTubeFilterSheet(UIViewController *controller) {
 
 static BOOL ShouldReplace(void) {
     return FiltersOn() && [MTPPrefs boolForKey:MTPKeySearchReplaceYouTubeFilters];
+}
+
+#pragma mark - YouTube's filter button (verified in YouTube 21.45.4)
+
+/// YouTube's filter button on the results page sends a
+/// YTShowSearchFiltersResponderEvent (initWithSearchFilters:view:fromRect:
+/// firstResponder:), and the results overflow menu sends a
+/// YTSearchFiltersOverflowMenuResponderEvent. Both are YTResponderEvent
+/// subclasses, delivered via -send / -sendIfEventHandlerAvailable /
+/// -sendWithStrictHandling:. Overriding those on the subclasses only replaces
+/// YouTube's filter sheet and nothing else.
+static void InterceptResponderEvent(NSString *className) {
+    Class cls = NSClassFromString(className);
+    if (!cls) return;
+    NSString *via = [@"YouTube filter button (" stringByAppendingFormat:@"%@)", className];
+    SEL send = @selector(send);
+    __block void (*origSend)(id, SEL) = NULL;
+    MTPHookMethod(cls, send, imp_implementationWithBlock(^(id self) {
+        if (ShouldReplace()) { PresentPanel(via); return; }
+        if (origSend) origSend(self, send);
+    }), (IMP *)&origSend);
+    SEL ifAvailable = NSSelectorFromString(@"sendIfEventHandlerAvailable");
+    __block void (*origIfAvailable)(id, SEL) = NULL;
+    MTPHookMethod(cls, ifAvailable, imp_implementationWithBlock(^(id self) {
+        if (ShouldReplace()) { PresentPanel(via); return; }
+        if (origIfAvailable) origIfAvailable(self, ifAvailable);
+    }), (IMP *)&origIfAvailable);
+    SEL strict = NSSelectorFromString(@"sendWithStrictHandling:");
+    __block BOOL (*origStrict)(id, SEL, BOOL) = NULL;
+    MTPHookMethod(cls, strict, imp_implementationWithBlock(^BOOL(id self, BOOL strictHandling) {
+        if (ShouldReplace()) { PresentPanel(via); return YES; }
+        return origStrict ? origStrict(self, strict, strictHandling) : NO;
+    }), (IMP *)&origStrict);
 }
 
 #pragma mark - Hooks
@@ -280,9 +319,12 @@ void MTPInstallAdvancedSearch(void) {
 
     if (MTPClassWithSelectors(@"YTISearchEndpoint", @[@"params"])) { %init(SearchParams); [notes addObject:@"search params"]; }
     else [notes addObject:@"YTISearchEndpoint.params missing"];
+    InterceptResponderEvent(@"YTShowSearchFiltersResponderEvent");
+    InterceptResponderEvent(@"YTSearchFiltersOverflowMenuResponderEvent");
     %init(SearchControlTaps);
     %init(SearchPresentation);
-    [notes addObject:@"filter button + sheet interception"];
+    [notes addObject:NSClassFromString(@"YTShowSearchFiltersResponderEvent") ? @"YouTube filter button (YTShowSearchFiltersResponderEvent)" : @"YTShowSearchFiltersResponderEvent missing"];
+    [notes addObject:@"fallbacks: control taps + filter sheet presentation"];
     Class eventClass = NSClassFromString(@"YTCommandResponderEvent");
     if (eventClass && [eventClass instancesRespondToSelector:@selector(send)]) { %init(SearchCommands); [notes addObject:@"filter command interception"]; }
     [compat setStatus:[notes componentsJoinedByString:@"; "] forModule:MTPModuleSearch];
