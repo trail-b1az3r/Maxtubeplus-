@@ -5,6 +5,9 @@ Subcommands
   inspect  IPA [--expect-version V] [--expect-bundle B] [--require-decrypted]
            Prints app metadata; fails on version/bundle mismatch or an
            encrypted (FairPlay) main binary.
+  locate   IPA NAME [--github-output FILE]
+           Reports whether NAME (e.g. MaxTubePlus.dylib) is bundled, where,
+           and whether the main executable loads it. Never fails on absence.
   patch-plist INFO_PLIST
            Adds the keys MaxTubePlus needs (120Hz on iPhone, Files access to
            the downloads folder). Idempotent.
@@ -114,6 +117,12 @@ def cmd_inspect(args):
             env.write(f"YT_VERSION={version}\nYT_BUNDLE_ID={bundle}\n")
     if args.require_decrypted and cryptid:
         fail("The IPA's main binary is FairPlay-encrypted (cryptid=1). A decrypted IPA you are authorised to use is required.")
+    executable = info.get("CFBundleExecutable", "")
+    if args.expect_executable and executable != args.expect_executable:
+        fail(f"Main executable is '{executable}', expected '{args.expect_executable}'. This is not the YouTube app.")
+    for dylib in args.require_dylib:
+        if not any(d.endswith("/" + dylib) for d in dylibs):
+            fail(f"{dylib} is not injected in this IPA. Expected a MaxTube/YTPlus IPA (YTPlus provides {dylib}).")
     if args.expect_bundle and bundle != args.expect_bundle:
         fail(f"Bundle ID is {bundle}, expected {args.expect_bundle}. This is not the YouTube app.")
     if args.expect_version and version != args.expect_version:
@@ -122,6 +131,17 @@ def cmd_inspect(args):
             print(f"::warning::{message} Continuing because allow_other_version is set; modules self-check at runtime.")
         else:
             fail(message + " Supply the target version or set allow_other_version.")
+
+
+def cmd_locate(args):
+    _, names, root, info, dylibs, cryptid = load_app(args.ipa)
+    files = [n for n in names if n.startswith(root) and n.endswith("/" + args.name)]
+    loaded = any(d.endswith("/" + args.name) for d in dylibs)
+    path = files[0][len(root):] if files else ""
+    print(f"{args.name}: {'bundled at ' + path if path else 'not bundled'}; {'loaded' if loaded else 'not loaded'} by the main executable")
+    if args.github_output:
+        with open(args.github_output, "a") as out:
+            out.write(f"bundled={'true' if path else 'false'}\npath={path}\nloaded={'true' if loaded else 'false'}\napp_root={root}\n")
 
 
 def cmd_patch_plist(args):
@@ -175,7 +195,14 @@ def main():
     p.add_argument("--allow-other-version", action="store_true")
     p.add_argument("--require-decrypted", action="store_true")
     p.add_argument("--github-env")
+    p.add_argument("--expect-executable")
+    p.add_argument("--require-dylib", action="append", default=[])
     p.set_defaults(func=cmd_inspect)
+    p = sub.add_parser("locate")
+    p.add_argument("ipa")
+    p.add_argument("name")
+    p.add_argument("--github-output")
+    p.set_defaults(func=cmd_locate)
     p = sub.add_parser("patch-plist")
     p.add_argument("plist")
     p.set_defaults(func=cmd_patch_plist)

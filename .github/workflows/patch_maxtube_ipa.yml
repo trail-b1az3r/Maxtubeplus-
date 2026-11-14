@@ -1,0 +1,215 @@
+name: Patch MaxTube IPA with MaxTubePlus
+
+# Takes an IPA that was already built with MaxTube / YouTube Plus (YTPlus) —
+# e.g. a MaxTube release or one built by "Create MaxTubePlus, MaxTube or
+# YouTube Plus app" — and adds MaxTubePlus to it. Everything else in the IPA
+# (YTPlus, other tweaks, app name, bundle ID, Safari extension) is kept.
+#
+# If the IPA already contains MaxTubePlus, its dylib is replaced in place with
+# the freshly built one (updating MaxTubePlus without rebuilding everything).
+
+on:
+  workflow_dispatch:
+    inputs:
+      ipa_url:
+        description: "URL of the MaxTube / YTPlus IPA to patch (decrypted, one you are authorised to use)"
+        type: string
+        required: true
+      maxtubeplus_version:
+        description: "MaxTubePlus version string (shown in Settings › MaxTubePlus)"
+        type: string
+        default: "1.0.0"
+        required: true
+      require_ytplus:
+        description: "Fail if the IPA does not contain YTPlus (YTLite.dylib)"
+        type: boolean
+        default: true
+        required: true
+      allow_other_version:
+        description: "Allow a YouTube version other than 21.42.4 (modules self-check at runtime)"
+        type: boolean
+        default: true
+        required: true
+      create_release:
+        description: "Publish the patched IPA as a draft GitHub release"
+        type: boolean
+        default: true
+        required: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  THEOS_REF: 9bc73406cf80b711ef4d02c15ff1dedc4478a275
+
+jobs:
+  build:
+    name: Build MaxTubePlus
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Validate version
+        run: |
+          if ! [[ "${{ inputs.maxtubeplus_version }}" =~ ^[0-9A-Za-z.+~-]{1,32}$ ]]; then
+            echo "::error::maxtubeplus_version may only contain letters, digits and . + ~ - (max 32 chars)"
+            exit 1
+          fi
+
+      - name: Static checks and unit tests
+        run: scripts/static_checks.sh
+
+      - name: Cache Theos
+        id: theos
+        uses: actions/cache@v5
+        with:
+          path: theos/
+          key: theos-linux-${{ env.THEOS_REF }}-v1
+
+      - name: Setup Theos, iOS toolchain and SDK
+        if: steps.theos.outputs.cache-hit != 'true'
+        run: |
+          git clone --quiet --recursive https://github.com/theos/theos.git theos
+          git -C theos checkout --quiet "$THEOS_REF" && git -C theos submodule update --quiet --init --recursive
+          mkdir -p theos/toolchain/linux
+          curl -sSL https://github.com/L1ghtmann/llvm-project/releases/latest/download/iOSToolchain-x86_64.tar.xz | tar -xJ -C theos/toolchain
+          git clone --quiet -n --depth=1 --filter=tree:0 https://github.com/theos/sdks/
+          (cd sdks && git sparse-checkout set --no-cone iPhoneOS16.5.sdk && git checkout --quiet)
+          mv sdks/*.sdk theos/sdks/
+
+      - name: Build deb and standalone dylib
+        run: |
+          set -o pipefail
+          export THEOS="$PWD/theos"
+          make -C MaxTubePlus clean package DEBUG=0 FINALPACKAGE=1 MTP_VERSION="${{ inputs.maxtubeplus_version }}" 2>&1 | tee build.log
+          mkdir -p out
+          cp MaxTubePlus/packages/*.deb out/maxtubeplus.deb
+          scripts/make_dylib.sh out/maxtubeplus.deb out/MaxTubePlus.dylib --linkage rpath | tee -a build.log
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: maxtubeplus-build
+          path: |
+            out/
+            build.log
+          if-no-files-found: error
+
+  patch:
+    name: Patch IPA
+    runs-on: macos-latest
+    needs: build
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Mask IPA URL
+        env:
+          IPA_URL: ${{ inputs.ipa_url }}
+        run: echo "::add-mask::$IPA_URL"
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: maxtubeplus-build
+          path: build
+
+      - name: Install tools
+        run: |
+          brew install dpkg ldid
+          pipx install --force https://github.com/asdfzxcvbn/pyzule-rw/archive/main.zip
+
+      - name: Download IPA
+        env:
+          IPA_URL: ${{ inputs.ipa_url }}
+        run: |
+          wget "$IPA_URL" --no-verbose -O input.ipa || { echo "::error::Downloading the IPA failed (URL expired or unreachable)."; exit 1; }
+          file_type=$(file --mime-type -b input.ipa)
+          if [[ "$file_type" != "application/x-ios-app" && "$file_type" != "application/zip" ]]; then
+            echo "::error::The downloaded file is not an IPA. Detected type: $file_type."
+            exit 1
+          fi
+
+      - name: Verify input (YouTube, decrypted, YTPlus present)
+        run: |
+          args=(inspect input.ipa --expect-executable YouTube --require-decrypted --github-env "$GITHUB_ENV" --expect-version 21.42.4)
+          [ "${{ inputs.require_ytplus }}" = "true" ] && args+=(--require-dylib YTLite.dylib)
+          [ "${{ inputs.allow_other_version }}" = "true" ] && args+=(--allow-other-version)
+          python3 scripts/ipa_tool.py "${args[@]}"
+
+      - name: Check for an existing MaxTubePlus
+        id: existing
+        run: python3 scripts/ipa_tool.py locate input.ipa MaxTubePlus.dylib --github-output "$GITHUB_OUTPUT"
+
+      - name: Patch Info.plist (ProMotion, Files access for downloads)
+        run: |
+          rm -rf work && mkdir work && unzip -q input.ipa -d work
+          plist=$(ls -d work/Payload/*.app)/Info.plist
+          python3 scripts/ipa_tool.py patch-plist "$plist"
+
+      - name: Replace existing MaxTubePlus in place
+        if: steps.existing.outputs.bundled == 'true' && steps.existing.outputs.loaded == 'true'
+        run: |
+          target="work/${{ steps.existing.outputs.app_root }}${{ steps.existing.outputs.path }}"
+          echo "Replacing $target"
+          cp build/out/MaxTubePlus.dylib "$target"
+          (cd work && zip -qry ../patched.ipa Payload)
+
+      - name: Inject MaxTubePlus
+        if: steps.existing.outputs.bundled != 'true' || steps.existing.outputs.loaded != 'true'
+        run: |
+          set -o pipefail
+          (cd work && zip -qry ../plist-patched.ipa Payload)
+          # Keep app name, bundle ID and extensions: no -n / -b / -e.
+          cyan -i plist-patched.ipa -o patched.ipa -uwf build/out/maxtubeplus.deb 2>&1 | tee cyan.log
+
+      - name: Verify patched IPA
+        run: |
+          required=(--dylib MaxTubePlus.dylib --plist-key CADisableMinimumFrameDurationOnPhone --plist-key UIFileSharingEnabled)
+          [ "${{ inputs.require_ytplus }}" = "true" ] && required+=(--dylib YTLite.dylib)
+          python3 scripts/ipa_tool.py verify patched.ipa "${required[@]}"
+          name="MaxTubePlus_${YT_VERSION}_patched.ipa"
+          mv patched.ipa "$name"
+          echo "IPA_NAME=$name" >> "$GITHUB_ENV"
+          if [ "${{ steps.existing.outputs.bundled }}" = "true" ]; then echo "PATCH_MODE=replaced existing MaxTubePlus" >> "$GITHUB_ENV"; else echo "PATCH_MODE=added MaxTubePlus" >> "$GITHUB_ENV"; fi
+
+      - name: Upload patched IPA
+        uses: actions/upload-artifact@v7
+        with:
+          name: MaxTubePlus-patched-ipa
+          path: ${{ env.IPA_NAME }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: patch-logs
+          path: cyan.log
+          if-no-files-found: ignore
+
+      - name: Publish draft release
+        if: ${{ inputs.create_release }}
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: patched-${{ env.YT_VERSION }}-${{ inputs.maxtubeplus_version }}-${{ github.run_number }}
+          name: MaxTubePlus ${{ inputs.maxtubeplus_version }} on MaxTube (YouTube ${{ env.YT_VERSION }})
+          draft: true
+          files: |
+            ${{ env.IPA_NAME }}
+            build/out/MaxTubePlus.dylib
+          body: |
+            MaxTube/YTPlus IPA patched with MaxTubePlus ${{ inputs.maxtubeplus_version }} (${{ env.PATCH_MODE }}).
+            YouTube ${{ env.YT_VERSION }} · bundle ID `${{ env.YT_BUNDLE_ID }}` · built from `${{ github.sha }}`.
+
+            Settings: YouTube › Settings › MaxTubePlus, or open `youtube://maxtubeplus` in Safari.
+
+      - name: Summary
+        run: |
+          {
+            echo "### Patched IPA"
+            echo "- YouTube \`$YT_VERSION\` (\`$YT_BUNDLE_ID\`)"
+            echo "- $PATCH_MODE"
+            echo "- Artifact: \`$IPA_NAME\`"
+          } >> "$GITHUB_STEP_SUMMARY"
