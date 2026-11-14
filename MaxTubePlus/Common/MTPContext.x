@@ -216,7 +216,18 @@ static MTPItemContext *ContextFromSourceView(UIView *view) {
     return context;
 }
 
+static const void *kDecoratedKey = &kDecoratedKey;
+
 static void RunDecorators(id sheet, UIView *view) {
+    if ([objc_getAssociatedObject(sheet, kDecoratedKey) boolValue]) return; // nested present variants
+    objc_setAssociatedObject(sheet, kDecoratedKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    // Cleared after the (possibly nested) present calls finish, so a reused
+    // sheet controller is decorated again for its next menu.
+    __weak id weakSheet = sheet;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        id strongSheet = weakSheet;
+        if (strongSheet) objc_setAssociatedObject(strongSheet, kDecoratedKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    });
     NSArray *decorators;
     @synchronized (gDecorators) { decorators = [gDecorators copy]; }
     if (decorators.count == 0) return;
@@ -302,6 +313,23 @@ static void HookSheetPresentation(NSString *className) {
             RunDecorators(self, view);
             orig2(self, two, view, completion);
         }), (IMP *)&orig2);
+    }
+    // YouTube 21.4x: -presentFromView:animated:completion:(scrimColor:) (verified in 21.45.4).
+    SEL animatedSel = NSSelectorFromString(@"presentFromView:animated:completion:");
+    if (class_getInstanceMethod(cls, animatedSel)) {
+        __block void (*origAnimated)(id, SEL, id, BOOL, id) = NULL;
+        MTPHookMethod(cls, animatedSel, imp_implementationWithBlock(^(id self, UIView *view, BOOL animated, id completion) {
+            RunDecorators(self, view);
+            origAnimated(self, animatedSel, view, animated, completion);
+        }), (IMP *)&origAnimated);
+    }
+    SEL scrimSel = NSSelectorFromString(@"presentFromView:animated:completion:scrimColor:");
+    if (class_getInstanceMethod(cls, scrimSel)) {
+        __block void (*origScrim)(id, SEL, id, BOOL, id, id) = NULL;
+        MTPHookMethod(cls, scrimSel, imp_implementationWithBlock(^(id self, UIView *view, BOOL animated, id completion, id scrim) {
+            RunDecorators(self, view);
+            origScrim(self, scrimSel, view, animated, completion, scrim);
+        }), (IMP *)&origScrim);
     }
     SEL three = NSSelectorFromString(@"presentFromViewController:animated:completion:");
     if (class_getInstanceMethod(cls, three)) {

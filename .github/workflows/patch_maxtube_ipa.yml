@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       ipa_url:
-        description: "URL of the MaxTube / YTPlus IPA to patch (decrypted, one you are authorised to use)"
+        description: "MaxTube / YTPlus IPA link: direct URL, iCloud Drive, Google Drive or Dropbox share (decrypted, one you are authorised to use)"
         type: string
         required: true
       maxtubeplus_version:
@@ -123,12 +123,8 @@ jobs:
         env:
           IPA_URL: ${{ inputs.ipa_url }}
         run: |
-          wget "$IPA_URL" --no-verbose -O input.ipa || { echo "::error::Downloading the IPA failed (URL expired or unreachable)."; exit 1; }
-          file_type=$(file --mime-type -b input.ipa)
-          if [[ "$file_type" != "application/x-ios-app" && "$file_type" != "application/zip" ]]; then
-            echo "::error::The downloaded file is not an IPA. Detected type: $file_type."
-            exit 1
-          fi
+          # Direct links, iCloud Drive, Google Drive and Dropbox share links.
+          python3 scripts/fetch_ipa.py "$IPA_URL" input.ipa
 
       - name: Verify input (YouTube, decrypted, YTPlus present)
         run: |

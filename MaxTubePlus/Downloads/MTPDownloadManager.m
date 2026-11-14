@@ -191,7 +191,12 @@ static NSDictionary *DescribeFormat(id format) {
     id controller = Get(player, @"activeVideo");
     id singleVideo = Get(controller, @"singleVideo") ?: Get(controller, @"videoData");
     NSString *videoID = Get(singleVideo, @"videoId") ?: Get(player, @"contentVideoID");
-    id streaming = Get(Get(Get(singleVideo, @"video"), @"streamingData"), @"streamingData");
+    // 21.45.4: YTSingleVideo -playbackData -> YTPlaybackData -video (MLVideo);
+    // older builds: YTSingleVideo -video. Last resort: the raw player response.
+    id playbackData = Get(singleVideo, @"playbackData");
+    id mlVideo = Get(playbackData, @"video") ?: Get(singleVideo, @"video");
+    id streaming = Get(Get(mlVideo, @"streamingData"), @"streamingData");
+    if (!streaming) streaming = Get(Get(Get(playbackData, @"playerResponse"), @"playerData"), @"streamingData");
     NSArray *formats = Get(streaming, @"adaptiveFormatsArray");
     if (![videoID isKindOfClass:[NSString class]] || !mtp_is_video_id(videoID.UTF8String)) return @"No video is playing.";
     if (![formats isKindOfClass:[NSArray class]] || formats.count == 0) return @"YouTube did not expose streaming formats for this video (live, premium-only or changed API).";

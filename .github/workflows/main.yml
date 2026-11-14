@@ -130,7 +130,7 @@ on:
         default: false
 
       ipa_url:
-        description: "URL to the decrypted YouTube 21.42.4 IPA (one you are authorised to use)"
+        description: "Decrypted YouTube 21.42.4 IPA link: direct URL, iCloud Drive, Google Drive or Dropbox share (one you are authorised to use)"
         default: ""
         required: true
         type: string

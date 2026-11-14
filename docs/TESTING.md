@@ -13,7 +13,17 @@ This page separates what has been **verified** from what still **requires a devi
 | Live third-party APIs return the shapes the parsers expect | `curl` against DeArrow branding, the DeArrow thumbnail service, YouTube oEmbed and the RYD votes API (2026-11-11) | manual |
 | YTPlus 6.0b2 and 6.0 internals used by the dock layer (`YTPTabHelper` class methods) | `otool -oV` plus selector-reference resolution on the shipped dylib | manual (see MODERN_UI_INVESTIGATION.md) |
 
-## Not verified: requires YouTube 21.42.4 on a device
+## Verified against a real YouTube 21.45.4 build (static, not on a device)
+
+A decrypted MaxTube IPA (YouTube 21.45.4, YTPlus 6.0) was analyzed with `otool -oV` plus selector resolution.
+- **Present:** every class and selector MaxTubePlus hooks or calls, including the settings group APIs, `YTIElementRenderer -elementData`, `YTPivotBarView -setRenderer:`, the `YTIPivotBarRenderer` factory, `YTCommandResponderEvent`, `YTActionSheetAction` factories and `-setHandler:`, toast events and `YTUIUtils`.
+- **Fixed after this analysis:**
+  - Menu sheets now present via `-presentFromView:animated:completion:` (the old `-presentFromView:` is gone).
+  - Stream formats are reached via `YTSingleVideo -playbackData -video` (`-[YTSingleVideo video]` is gone).
+  - YouTube's search-filter button sends `YTShowSearchFiltersResponderEvent`, which MaxTubePlus now intercepts directly.
+- **End-to-end patch run:** the same IPA, downloaded from an iCloud Drive link, was patched with the real `cyan` inject step. `MaxTubePlus.dylib` was injected and loaded, and YTPlus, YouGroupSettings and the Safari extension were kept.
+
+: requires YouTube 21.42.4 on a device
 
 A decrypted 21.42.4 IPA is proprietary and was not available to this project. A packaged IPA was therefore **not** produced or run here. Every item below needs a device run. Settings › MaxTubePlus shows live status for each module to help with this. Turn on *General › Debug logging* and read Console with the filter `com.maxtubeplus`.
 

@@ -27,7 +27,7 @@ All settings live in **YouTube › Settings › MaxTubePlus** (or open `youtube:
   - Give it a URL to a **decrypted YouTube 21.42.4 IPA that you are authorized to use**.
   - *Integrate MaxTubePlus* is on by default.
   - The workflow checks the input app's bundle ID, version and decryption, patches Info.plist, injects the tweaks, and then checks that every built tweak's dylib is actually loaded by the app. Any failed check stops the build.
-- **Patch an existing MaxTube IPA:** run *Actions › Patch MaxTube IPA with MaxTubePlus* with the URL of an IPA you already built with MaxTube / YTPlus.
+- **Patch an existing MaxTube IPA:** run *Actions › Patch MaxTube IPA with MaxTubePlus* with a link to an IPA you already built with MaxTube / YTPlus. The link can be a direct URL or an iCloud Drive, Google Drive or Dropbox share set to "Anyone with the link".
   - It adds MaxTubePlus, or swaps in the new build if the IPA already has it.
   - It keeps the app name, bundle ID, YTPlus, the other tweaks and the Safari extension.
   - It checks that the IPA is a decrypted YouTube with YTPlus, and that MaxTubePlus is actually loaded afterwards.
