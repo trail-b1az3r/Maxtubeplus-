@@ -1,30 +1,223 @@
-// Advanced Search.
+// Advanced Search — replaces YouTube's own search-filter UI.
 //
-//  Server side: YouTube's search "params" protobuf (the same bytes its own
-//  filter chips send) is generated from the active filters: upload-date
-//  bucket, duration bucket, type=video and sort-by-upload-date for recency.
-//  It is only injected when YouTube itself did not set params, so YouTube's
-//  own chips keep working.
-//  Client side: exact bounds (duration in minutes, upload window, recency,
-//  minimum likes) are applied to every rendered search result element.
-//  Entry points: long-press the search button, or Settings > MaxTubePlus.
+//  Entry point: YouTube's filter button on the search results screen opens the
+//  MaxTubePlus filter panel instead of YouTube's "Search filters" sheet.
+//  Because the 21.42.4 filter button class is not in public headers, three
+//  independent interception layers are used (each logs when it fires, with
+//  Settings > MaxTubePlus > General > Debug logging):
+//    1. UIControl taps (UIApplication -sendAction:to:from:forEvent:) from a
+//       control labelled as a filter inside the search screen;
+//    2. YouTube commands whose payload opens the search-filter dialog
+//       (YTCommandResponderEvent factories + -send);
+//    3. presentation of YouTube's own search-filter view controller.
+//  Applying the panel re-runs the current query with YouTube's search params
+//  protobuf (upload date bucket, duration bucket, type=video, sort), so the
+//  server applies the filters; exact bounds (minutes, likes, date window) are
+//  then enforced on the rendered results.
 
 #import <objc/runtime.h>
+#import <objc/message.h>
 #import "MTPSearchFilterState.h"
 #import "MTPSearchFilterViewController.h"
 #import "../Common/MTPContext.h"
 #import "../Common/MTPYouTube.h"
 
-extern void MTPContextBumpFilterGeneration(void);
-
 static NSMutableSet<NSString *> *gPendingLikes;
 static BOOL gLikesFetchScheduled = NO;
 static NSUInteger gHiddenResults = 0;
-static const void *kLongPressKey = &kLongPressKey;
+static NSString *gLastQuery;
+static NSString *gLastInterception = @"none yet";
+static const void *kFilterEventKey = &kFilterEventKey;
 
 static BOOL FiltersOn(void) {
     return [MTPPrefs boolForKey:MTPKeySearchFiltersEnabled];
 }
+
+static void Debug(NSString *format, ...) NS_FORMAT_FUNCTION(1, 2);
+static void Debug(NSString *format, ...) {
+    if (![MTPPrefs boolForKey:MTPKeyDebugLogging]) return;
+    va_list args;
+    va_start(args, format);
+    NSString *message = [[NSString alloc] initWithFormat:format arguments:args];
+    va_end(args);
+    MTPLog(@"search: %@", message);
+}
+
+#pragma mark - Running a search
+
+NSString *MTPLastSearchQuery(void) { return gLastQuery; }
+
+static id NewMessage(NSString *className) {
+    Class cls = NSClassFromString(className);
+    SEL message = NSSelectorFromString(@"message");
+    if ([cls respondsToSelector:message]) return ((id (*)(id, SEL))objc_msgSend)(cls, message);
+    return [cls new];
+}
+
+/// Re-runs `query` with the active MaxTubePlus filters. Prefers YouTube's own
+/// navigation (a search command sent through the responder chain); falls back
+/// to YouTube's results deep link handled by the app itself.
+void MTPRunSearch(NSString *query) {
+    if (query.length == 0) {
+        MTPToast(@"MaxTubePlus: filters saved — they apply to your next search.");
+        return;
+    }
+    MTPContextBumpFilterGeneration();
+    NSString *params = [[MTPSearchFilterState shared] encodedSearchParams] ?: @"";
+
+    id endpoint = NewMessage(@"YTISearchEndpoint");
+    id command = NewMessage(@"YTICommand");
+    SEL setSearch = NSSelectorFromString(@"setSearchEndpoint:");
+    Class eventClass = NSClassFromString(@"YTCommandResponderEvent");
+    SEL factory = NSSelectorFromString(@"eventWithCommand:fromView:entry:sendClick:firstResponder:");
+    UIViewController *responder = [MTPContext currentSectionList] ?: MTPTopViewController();
+    if (endpoint && command && [command respondsToSelector:setSearch] && [eventClass respondsToSelector:factory] && responder) {
+        @try {
+            [endpoint setValue:query forKey:@"query"];
+            [endpoint setValue:params forKey:@"params"];
+            ((void (*)(id, SEL, id))objc_msgSend)(command, setSearch, endpoint);
+            id event = ((id (*)(id, SEL, id, id, id, BOOL, id))objc_msgSend)(eventClass, factory, command, responder.view, nil, NO, responder);
+            if ([event respondsToSelector:@selector(send)]) {
+                [event performSelector:@selector(send)];
+                Debug(@"re-ran \"%@\" via command, params=%@", query, params);
+                return;
+            }
+        } @catch (NSException *exception) {
+            MTPLog(@"search: command path failed: %@", exception);
+        }
+    }
+    // Fallback: YouTube's own results URL (handled in-app).
+    NSURLComponents *components = [NSURLComponents componentsWithString:@"youtube://www.youtube.com/results"];
+    NSMutableArray *items = [NSMutableArray arrayWithObject:[NSURLQueryItem queryItemWithName:@"search_query" value:query]];
+    NSString *plainParams = [params stringByReplacingOccurrencesOfString:@"%3D" withString:@"="];
+    if (plainParams.length) [items addObject:[NSURLQueryItem queryItemWithName:@"sp" value:plainParams]];
+    components.queryItems = items;
+    Debug(@"re-ran \"%@\" via URL %@", query, components.URL);
+    [[UIApplication sharedApplication] openURL:components.URL options:@{} completionHandler:nil];
+}
+
+static void PresentPanel(NSString *via) {
+    gLastInterception = via;
+    Debug(@"YouTube filter UI intercepted via %@", via);
+    dispatch_async(dispatch_get_main_queue(), ^{ [MTPSearchFilterViewController presentFromTop]; });
+}
+
+#pragma mark - Interception helpers
+
+static BOOL TextLooksLikeFilter(NSString *text) {
+    NSString *lower = text.lowercaseString;
+    // "Search filters", "Filters", "Filtros", "Filtre", "Filtri", "Filtr…", "Фильтры", "フィルタ", "筛选", "필터"
+    for (NSString *marker in @[@"filter", @"filtr", @"filtre", @"фильтр", @"フィルタ", @"筛选", @"篩選", @"필터", @"تصفية"]) {
+        if ([lower containsString:marker]) return YES;
+    }
+    return NO;
+}
+
+static BOOL InSearchScreen(id responder) {
+    if ([MTPContext currentSurface] == MTPSurfaceSearch) return YES;
+    return [MTPResponderChainDescription(responder) rangeOfString:@"Search"].location != NSNotFound;
+}
+
+static BOOL IsYouTubeFilterControl(id sender) {
+    if (![sender isKindOfClass:[UIView class]]) return NO;
+    UIView *view = sender;
+    // Our own panel and settings are never intercepted.
+    if ([MTPResponderChainDescription(view) rangeOfString:@"MTP"].location != NSNotFound) return NO;
+    NSString *label = view.accessibilityLabel ?: @"";
+    NSString *identifier = view.accessibilityIdentifier ?: @"";
+    if (!TextLooksLikeFilter(label) && !TextLooksLikeFilter(identifier)) return NO;
+    return InSearchScreen(view);
+}
+
+static BOOL CommandOpensSearchFilters(id command) {
+    if (!command) return NO;
+    NSString *description = [command description];
+    for (NSString *marker in @[@"search_filter", @"searchFilter", @"SearchFilter", @"search_filters", @"filter_options_dialog", @"searchFilterOptionsDialog"]) {
+        if ([description rangeOfString:marker].location != NSNotFound) return YES;
+    }
+    return NO;
+}
+
+static BOOL ControllerIsYouTubeFilterSheet(UIViewController *controller) {
+    UIViewController *target = controller;
+    if ([target isKindOfClass:[UINavigationController class]]) target = [(UINavigationController *)target viewControllers].firstObject ?: target;
+    NSString *name = NSStringFromClass([target class]);
+    if ([name hasPrefix:@"MTP"]) return NO;
+    if ([name rangeOfString:@"SearchFilter"].location != NSNotFound) return YES;
+    return [target.title isKindOfClass:[NSString class]] && TextLooksLikeFilter(target.title) && InSearchScreen(MTPTopViewController());
+}
+
+static BOOL ShouldReplace(void) {
+    return FiltersOn() && [MTPPrefs boolForKey:MTPKeySearchReplaceYouTubeFilters];
+}
+
+#pragma mark - Hooks
+
+%group SearchParams
+%hook YTISearchEndpoint
+- (NSString *)params {
+    NSString *original = %orig;
+    NSString *query = nil;
+    @try { query = [self valueForKey:@"query"]; } @catch (__unused NSException *e) {}
+    if ([query isKindOfClass:[NSString class]] && query.length) {
+        gLastQuery = [query copy];
+        MTPContextSetSurface(MTPSurfaceSearch);
+    }
+    if (original.length || !FiltersOn()) return original;
+    NSString *ours = [[MTPSearchFilterState shared] encodedSearchParams];
+    return ours ?: original;
+}
+%end
+%end
+
+%group SearchControlTaps
+%hook UIApplication
+- (BOOL)sendAction:(SEL)action to:(id)target from:(id)sender forEvent:(UIEvent *)event {
+    if (ShouldReplace() && IsYouTubeFilterControl(sender)) {
+        PresentPanel([NSString stringWithFormat:@"control tap (%@ \"%@\")", NSStringFromClass([sender class]), [sender accessibilityLabel] ?: [sender accessibilityIdentifier]]);
+        return YES;
+    }
+    return %orig;
+}
+%end
+%end
+
+%group SearchCommands
+%hook YTCommandResponderEvent
++ (id)eventWithCommand:(id)command fromView:(UIView *)view entry:(id)entry sendClick:(BOOL)sendClick firstResponder:(id)firstResponder {
+    id event = %orig;
+    if (event && CommandOpensSearchFilters(command)) objc_setAssociatedObject(event, kFilterEventKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    return event;
+}
++ (id)eventWithCommand:(id)command entry:(id)entry sendClick:(BOOL)sendClick firstResponder:(id)firstResponder {
+    id event = %orig;
+    if (event && CommandOpensSearchFilters(command)) objc_setAssociatedObject(event, kFilterEventKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    return event;
+}
+- (void)send {
+    if ([objc_getAssociatedObject(self, kFilterEventKey) boolValue] && ShouldReplace()) {
+        PresentPanel(@"search-filter command");
+        return;
+    }
+    %orig;
+}
+%end
+%end
+
+%group SearchPresentation
+%hook UIViewController
+- (void)presentViewController:(UIViewController *)controller animated:(BOOL)animated completion:(void (^)(void))completion {
+    if (ShouldReplace() && ControllerIsYouTubeFilterSheet(controller)) {
+        PresentPanel([NSString stringWithFormat:@"presentation of %@", NSStringFromClass([controller class])]);
+        if (completion) completion();
+        return;
+    }
+    %orig;
+}
+%end
+%end
+
+#pragma mark - Result refinement
 
 static void ReloadVisibleSearchResults(void) {
     UIViewController *list = [MTPContext currentSectionList];
@@ -50,46 +243,11 @@ static void ScheduleLikesFetch(void) {
     });
 }
 
-%group SearchParams
-%hook YTISearchEndpoint
-- (NSString *)params {
-    NSString *original = %orig;
-    if (original.length || !FiltersOn()) return original;
-    NSString *ours = [[MTPSearchFilterState shared] encodedSearchParams];
-    return ours ?: original;
-}
-%end
-%end
-
-%group SearchEntry
-%hook YTRightNavigationButtons
-- (void)layoutSubviews {
-    %orig;
-    UIView *search = nil;
-    @try { search = [self valueForKey:@"searchButton"]; } @catch (__unused NSException *e) {}
-    if (![search isKindOfClass:[UIView class]] || objc_getAssociatedObject(search, kLongPressKey)) return;
-    UILongPressGestureRecognizer *press = [[UILongPressGestureRecognizer alloc] initWithTarget:[MTPSearchFilterViewController class] action:@selector(mtp_longPress:)];
-    press.minimumPressDuration = 0.4;
-    [search addGestureRecognizer:press];
-    objc_setAssociatedObject(search, kLongPressKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-}
-%end
-%end
-
-@interface MTPSearchFilterViewController (Entry)
-+ (void)mtp_longPress:(UILongPressGestureRecognizer *)gesture;
-@end
-
-@implementation MTPSearchFilterViewController (Entry)
-+ (void)mtp_longPress:(UILongPressGestureRecognizer *)gesture {
-    if (gesture.state == UIGestureRecognizerStateBegan) [self presentFromTop];
-}
-@end
-
 NSString *MTPAdvancedSearchStatus(void) {
     MTPSearchFilterState *state = [MTPSearchFilterState shared];
-    return [NSString stringWithFormat:@"%lu active filter(s), sort: %@, %lu result(s) hidden this session",
-            (unsigned long)state.activeKinds.count, state.sortMode == MTPSortRecency ? @"recency" : @"relevance", (unsigned long)gHiddenResults];
+    return [NSString stringWithFormat:@"%lu active filter(s), sort: %@, %lu result(s) hidden this session\nLast query: %@\nYouTube filter UI last replaced via: %@",
+            (unsigned long)state.activeKinds.count, state.sortMode == MTPSortRecency ? @"recency" : @"relevance", (unsigned long)gHiddenResults,
+            gLastQuery ?: @"—", gLastInterception];
 }
 
 void MTPInstallAdvancedSearch(void) {
@@ -118,17 +276,14 @@ void MTPInstallAdvancedSearch(void) {
         if (hide) gHiddenResults++;
         return hide;
     }];
-    [notes addObject:@"result filtering via element hook"];
+    [notes addObject:@"result refinement"];
 
-    if (MTPClassWithSelectors(@"YTISearchEndpoint", @[@"params"])) {
-        %init(SearchParams);
-        [notes addObject:@"server params hooked"];
-    } else {
-        [notes addObject:@"YTISearchEndpoint.params missing (client-side only)"];
-    }
-    if (NSClassFromString(@"YTRightNavigationButtons")) {
-        %init(SearchEntry);
-        [notes addObject:@"long-press search entry"];
-    }
+    if (MTPClassWithSelectors(@"YTISearchEndpoint", @[@"params"])) { %init(SearchParams); [notes addObject:@"search params"]; }
+    else [notes addObject:@"YTISearchEndpoint.params missing"];
+    %init(SearchControlTaps);
+    %init(SearchPresentation);
+    [notes addObject:@"filter button + sheet interception"];
+    Class eventClass = NSClassFromString(@"YTCommandResponderEvent");
+    if (eventClass && [eventClass instancesRespondToSelector:@selector(send)]) { %init(SearchCommands); [notes addObject:@"filter command interception"]; }
     [compat setStatus:[notes componentsJoinedByString:@"; "] forModule:MTPModuleSearch];
 }

@@ -8,10 +8,10 @@ MaxTubePlus is a fork of [MaxTube](https://github.com/Mark02-2012/MaxTube) by Ma
 | DeArrow | Native [DeArrow](https://dearrow.ajay.app) client with no WebView. Title and thumbnail replacement can be switched on and off separately. Results are cached on disk. If a video has no submission, the original is kept. Attribution is shown in settings. | `MaxTubePlus/DeArrow` |
 | 120Hz Playback | Lifts 60Hz caps on interface display links on ProMotion devices, and the build adds `CADisableMinimumFrameDurationOnPhone`. Video frame pacing is left alone, and the module turns itself off on 60Hz screens. | `MaxTubePlus/RefreshRate` |
 | Creator Suppression | Learns from repeated "Don't recommend channel" / "Show fewer…". The threshold is configurable but at least 2, and old interactions can decay. Suppressed creators are hidden on Home, Shorts, Explore and Watch next, but stay visible in search and on their channel. There is a management screen with per-creator restore. | `MaxTubePlus/CreatorSuppression` |
-| Advanced Search | Filters for minimum likes, a duration range slider, upload date and recency. Filters combine, can be removed one at a time or all at once, and survive changing the sort (relevance or recency). A separate commented-videos mode searches comments imported from Google Takeout. | `MaxTubePlus/AdvancedSearch` |
+| Advanced Search | Replaces YouTube's search filter sheet (tap YouTube's filter button on a results page). Filters for minimum likes, a duration range slider, upload date and recency. Filters combine, can be removed one at a time or all at once, and survive changing the sort (relevance or recency). A separate commented-videos mode searches comments imported from Google Takeout. | `MaxTubePlus/AdvancedSearch` |
 | Modern UI Compatibility | YTPlus dock customization and the Subscriptions tab work with YouTube's newer floating menu, without spoofing iOS 17. See [docs/MODERN_UI_INVESTIGATION.md](docs/MODERN_UI_INVESTIGATION.md). | `MaxTubePlus/ModernUI` |
 
-All settings live in **YouTube › Settings › MaxTubePlus**, in eight pages: the six modules, General and About. Every page shows the module's live hook status.
+All settings live in **YouTube › Settings › MaxTubePlus** (or open `youtube://maxtubeplus` in Safari), in eight pages: the six modules, General and About. Every page shows the module's live hook status.
 
 **Layout:**
 - `MaxTubePlus/Core`: portable C logic with unit tests.

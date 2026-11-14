@@ -142,8 +142,9 @@ static NSString *JoinTabs(NSArray<NSString *> *tabs) {
         }
         case MTPSettingsGroupSearch:
             return @[
-                Section(nil, @"Long-press the search button to open the filter panel. Filters combine, can be removed individually, and stay active when the sort order changes.", @[
+                Section(nil, @"Tap YouTube's filter button on a search results screen to open these filters instead of YouTube's. Apply re-runs the search. Filters combine, can be removed individually, and stay active when the sort order changes.", @[
                     Switch(@"Advanced search filters", MTPKeySearchFiltersEnabled),
+                    Switch(@"Replace YouTube's search filters", MTPKeySearchReplaceYouTubeFilters),
                     Switch(@"Look up like counts (RYD API)", MTPKeySearchFetchLikes),
                     Action(@"Filters & sorting", ^(UIViewController *from) { [MTPSearchFilterViewController presentFromTop]; }),
                     Action(@"Commented videos search", ^(UIViewController *from) { [from.navigationController pushViewController:[MTPCommentedVideosViewController new] animated:YES]; }),
@@ -361,6 +362,49 @@ static NSString *JoinTabs(NSArray<NSString *> *tabs) {
     else [_hidden addObject:identifier];
     [self save];
     [tableView reloadRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationAutomatic];
+}
+
+@end
+
+#pragma mark - Root page
+
+@implementation MTPSettingsRootViewController
+
++ (void)presentFromTop {
+    UIViewController *top = MTPTopViewController();
+    if (!top) return;
+    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:[MTPSettingsRootViewController new]];
+    [top presentViewController:nav animated:YES completion:nil];
+}
+
+- (instancetype)init { return [super initWithStyle:UITableViewStyleInsetGrouped]; }
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = @"MaxTubePlus";
+    if (self.navigationController.viewControllers.firstObject == self)
+        self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(close)];
+}
+
+- (void)close { [self dismissViewControllerAnimated:YES completion:nil]; }
+
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return MTPSettingsGroupCount; }
+
+- (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
+    return [NSString stringWithFormat:@"MaxTubePlus %s · %@", MTP_VERSION, [MTPCompat shared].summary];
+}
+
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
+    cell.textLabel.text = [MTPSettingsViewController titleForGroup:indexPath.row];
+    cell.imageView.image = [UIImage systemImageNamed:[MTPSettingsViewController symbolForGroup:indexPath.row]];
+    cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+    return cell;
+}
+
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    [self.navigationController pushViewController:[[MTPSettingsViewController alloc] initWithGroup:indexPath.row] animated:YES];
 }
 
 @end

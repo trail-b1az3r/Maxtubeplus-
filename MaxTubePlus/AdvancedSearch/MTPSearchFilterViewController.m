@@ -2,6 +2,9 @@
 #import "MTPSearchFilterState.h"
 #import "MTPCommentedVideosViewController.h"
 
+extern NSString *MTPLastSearchQuery(void);
+extern void MTPRunSearch(NSString *query);
+
 static const CGFloat kMaxMinutes = 120; // slider top = "no upper bound"
 
 @implementation MTPRangeSlider {
@@ -119,16 +122,20 @@ typedef NS_ENUM(NSInteger, MTPSection) {
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"Advanced Search";
-    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(done)];
+    NSString *query = MTPLastSearchQuery();
+    self.title = query.length ? [NSString stringWithFormat:@"Filters · %@", query] : @"Search filters";
+    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:query.length ? @"Apply" : @"Done" style:UIBarButtonItemStyleDone target:self action:@selector(done)];
     self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"Clear All" style:UIBarButtonItemStylePlain target:self action:@selector(clearAll)];
     [self refresh];
 }
 
 - (void)done {
+    [self.view endEditing:YES]; // commits the likes field
     [_state save];
-    [self dismissViewControllerAnimated:YES completion:nil];
-    if ([_state hasActiveFilters]) MTPToast(@"MaxTubePlus filters apply to your next search.");
+    NSString *query = MTPLastSearchQuery();
+    [self dismissViewControllerAnimated:YES completion:^{
+        MTPRunSearch(query); // re-runs the current search with the filters (or toasts if none)
+    }];
 }
 
 - (void)clearAll {
@@ -170,7 +177,7 @@ typedef NS_ENUM(NSInteger, MTPSection) {
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     switch (section) {
         case MTPSectionActive: return @"Tap a filter to remove it. Filters stay active when you change the sort order.";
-        case MTPSectionSort: return @"Recency asks YouTube to sort by upload date; your filters are sent along with it.";
+        case MTPSectionSort: return @"Recency asks YouTube to sort by upload date; your filters are sent along with it. Tap Apply to search again with these settings.";
         case MTPSectionLikes: return @"Search results don't include like counts, so they are looked up from the Return YouTube Dislike API (returnyoutubedislikeapi.com). Results are shown until their count is known.";
         case MTPSectionDate: return @"YouTube narrows results to the nearest server bucket (hour/day/week/month/year); MaxTubePlus then applies the exact range using the upload age shown on each result (English UI labels).";
         case MTPSectionModes: return @"Commented videos searches comments imported from Google Takeout — including videos that are not in your watch history.";

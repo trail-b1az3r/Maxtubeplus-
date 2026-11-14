@@ -17,7 +17,7 @@ $(TWEAK_NAME)_FILES = \
 	CreatorSuppression/MTPSuppressionStore.m CreatorSuppression/MTPSuppressedCreatorsViewController.m CreatorSuppression/CreatorSuppression.x \
 	AdvancedSearch/MTPSearchFilterState.m AdvancedSearch/MTPSearchFilterViewController.m AdvancedSearch/MTPCommentHistory.m AdvancedSearch/MTPCommentedVideosViewController.m AdvancedSearch/AdvancedSearch.x \
 	ModernUI/MTPTabLayout.m ModernUI/ModernUI.x \
-	Settings/MTPSettingsViewController.m Settings/Settings.x \
+	Settings/MTPSettingsViewController.m Settings/MTPSettingsURL.m Settings/Settings.x \
 	Tweak.x
 
 $(TWEAK_NAME)_CFLAGS = -fobjc-arc -Wall -Werror -Wno-deprecated-declarations -Wno-unused-function -DMTP_VERSION=\"$(MTP_VERSION)\"

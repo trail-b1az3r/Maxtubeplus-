@@ -314,6 +314,7 @@ static void HookSheetPresentation(NSString *className) {
 }
 
 void MTPContextBumpFilterGeneration(void) { gFilterGeneration++; }
+void MTPContextSetSurface(MTPSurface surface) { gSurface = surface; }
 
 void MTPInstallContext(void) {
     gFilters = [NSMutableArray array];

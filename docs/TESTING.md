@@ -33,6 +33,11 @@ Also check:
 - Switching the compatibility switch.
 - That *Modern UI › Hooks* lists at least one floating consumer.
 
+### Settings
+
+- Settings › MaxTubePlus appears (in the "Tweaks" group when YouGroupSettings is present, otherwise in YouTube's first group).
+- `youtube://maxtubeplus` opened from Safari shows the MaxTubePlus settings even if the section is missing.
+
 ### Other modules
 
 - **Downloads:**
@@ -59,7 +64,7 @@ Also check:
   - Restore works.
   - The manual "Suppress creator" action works.
 - **Advanced search:**
-  - Long-press the search button.
+  - Search, then tap YouTube's filter button: the MaxTubePlus panel opens instead of YouTube's sheet; Apply re-runs the search. If YouTube's sheet still appears, enable General › Debug logging and check *Advanced Search › Status* ("last replaced via").
   - Combine duration range, minimum likes and recency.
   - Remove one filter.
   - Clear all.
