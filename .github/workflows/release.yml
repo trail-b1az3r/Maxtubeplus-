@@ -3,7 +3,7 @@ name: MaxTubePlus Release
 # Push a tag like v1.0.0 to build and publish a MaxTubePlus release.
 # Requires the repository secret YT_IPA_URL: a URL to a decrypted YouTube
 # 21.42.4 IPA you are authorised to use (never commit the IPA itself).
-# Optional repository variable YTPLUS_VERSION (default 6.0b2).
+# Optional repository variable YTPLUS_VERSION (default 6.0).
 
 on:
   push:
@@ -23,7 +23,7 @@ jobs:
       enable_ytweaks: false
       enable_gonerino: false
       enable_youspeed: false
-      enable_YTLCM: false
+      enable_ytlcm: false
       enable_VolumeBoostYT: false
       enable_YouGetCaption: false
       enable_ytpf: false
@@ -35,7 +35,7 @@ jobs:
       enable_ytlocalqueue: false
       enable_maxtubeplus: true
       maxtubeplus_version: ${{ github.ref_name }}
-      tweak_version: ${{ vars.YTPLUS_VERSION || '6.0b2' }}
+      tweak_version: ${{ vars.YTPLUS_VERSION || '6.0' }}
 
   package:
     needs: build-tweaks
@@ -43,7 +43,7 @@ jobs:
     permissions:
       contents: write
     with:
-      tweak_version: ${{ vars.YTPLUS_VERSION || '6.0b2' }}
+      tweak_version: ${{ vars.YTPLUS_VERSION || '6.0' }}
       enable_maxtubeplus: true
       release_tag: ${{ github.ref_name }}
     secrets:
