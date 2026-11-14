@@ -11,7 +11,7 @@ This page separates what has been **verified** from what still **requires a devi
 | Static checks: Logos `%hook/%group`/`%end` balance, every source listed in the Makefile, every module installer defined and called, no signing material or binaries committed, workflow YAML parses | `scripts/static_checks.sh` | CI and locally |
 | The tweak compiles and links with `-Wall -Werror` (arm64, iOS 15 target, iPhoneOS 16.5 SDK) | Theos + L1ghtmann iOS toolchain on Linux (local and CI); Theos + Xcode on macOS (CI) | `maxtubeplus_ci.yml` |
 | Live third-party APIs return the shapes the parsers expect | `curl` against DeArrow branding, the DeArrow thumbnail service, YouTube oEmbed and the RYD votes API (2026-11-11) | manual |
-| YTPlus 6.0b2 internals used by the dock layer (`YTPTabHelper` class methods) | `otool -oV` plus selector-reference resolution on the shipped dylib | manual (see MODERN_UI_INVESTIGATION.md) |
+| YTPlus 6.0b2 and 6.0 internals used by the dock layer (`YTPTabHelper` class methods) | `otool -oV` plus selector-reference resolution on the shipped dylib | manual (see MODERN_UI_INVESTIGATION.md) |
 
 ## Not verified: requires YouTube 21.42.4 on a device
 

@@ -27,6 +27,10 @@ All settings live in **YouTube › Settings › MaxTubePlus** (or open `youtube:
   - Give it a URL to a **decrypted YouTube 21.42.4 IPA that you are authorized to use**.
   - *Integrate MaxTubePlus* is on by default.
   - The workflow checks the input app's bundle ID, version and decryption, patches Info.plist, injects the tweaks, and then checks that every built tweak's dylib is actually loaded by the app. Any failed check stops the build.
+- **Patch an existing MaxTube IPA:** run *Actions › Patch MaxTube IPA with MaxTubePlus* with the URL of an IPA you already built with MaxTube / YTPlus.
+  - It adds MaxTubePlus, or swaps in the new build if the IPA already has it.
+  - It keeps the app name, bundle ID, YTPlus, the other tweaks and the Safari extension.
+  - It checks that the IPA is a decrypted YouTube with YTPlus, and that MaxTubePlus is actually loaded afterwards.
 - **Standalone .dylib:** run *Actions › Create MaxTubePlus .dylib* to get `MaxTubePlus.dylib` without supplying an IPA, and inject it yourself next to YTPlus with Feather, ESign, Sideloadly, TrollFools or cyan.
   - Choose `rpath` for sideloading. MaxTubePlus does not depend on Cydia Substrate or ElleKit (YTPlus still needs one, which injectors add).
   - Choose `rootful` or `rootless` for jailbreaks.
@@ -294,19 +298,21 @@ Returned to the original VolumeBoostYT tweak because the fork used in MaxTube 1.
 <li><strong>2.1 (October 22 2026):</strong></li>
 • Fixed duplicated YTLocalQueue setting section
 
+<li><strong>2.1.1 (November 11 2026):</strong></li>
+• Updated YTPlus from 6.0b2 to 6.0 stable (this should fix many of the issues you may be experiencing; if you encounter problems with it in LiveContainer, please let me know, though it should be working normally)
+
 ## Supported YouTube Version
 <ul>
-   <li><strong>Latest confirmed:</strong> <em>21.33.6</em></li>
-   <li><strong>Recommended for working downloads:</strong> <em>21.24.3</em></li>
-   <li><strong>Date tested:</strong> <em>August 24, 2026</em></li>
-   <li><strong>YouTube Plus:</strong> <em>5.2.2</em></li>
+   <li><strong>Latest confirmed:</strong> <em>21.45.4</em></li>
+   <li><strong>Date tested:</strong> <em>November 11, 2026</em></li>
+   <li><strong>YouTube Plus:</strong> <em>6.0</em></li>
 </ul>
 
 ## Supported YouTube Version For iOS 15
 <ul>
    <li><strong>Latest confirmed:</strong> <em>20.21.6</em></li>
-   <li><strong>Date tested:</strong> <em>July 24, 2026</em></li>
-   <li><strong>YouTube Plus:</strong> <em>5.2.2</em></li>
+   <li><strong>Date tested:</strong> <em>November 11, 2026</em></li>
+   <li><strong>YouTube Plus:</strong> <em>6.0</em></li>
 </ul>
 
 ## Tweak Integration Details

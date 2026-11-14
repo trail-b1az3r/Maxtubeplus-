@@ -94,6 +94,31 @@ class IPAToolTests(unittest.TestCase):
         make_ipa(self.ipa, dylibs=["@rpath/MaxTubePlus.dylib"], files=["Frameworks/MaxTubePlus.dylib"])
         self.assertNotEqual(run("verify", self.ipa, "--dylib", "MaxTubePlus.dylib", "--plist-key", "CADisableMinimumFrameDurationOnPhone").returncode, 0)
 
+    def test_inspect_maxtube_ipa_with_custom_bundle(self):
+        make_ipa(self.ipa, bundle="com.example.maxtube", dylibs=["@rpath/YTLite.dylib"], files=["Frameworks/YTLite.dylib"])
+        ok = run("inspect", self.ipa, "--expect-executable", "YouTube", "--require-dylib", "YTLite.dylib", "--require-decrypted")
+        self.assertEqual(ok.returncode, 0, ok.stdout)
+        make_ipa(self.ipa)  # plain YouTube, no YTPlus
+        bad = run("inspect", self.ipa, "--require-dylib", "YTLite.dylib")
+        self.assertNotEqual(bad.returncode, 0)
+        self.assertIn("MaxTube/YTPlus IPA", bad.stdout)
+
+    def test_locate_reports_existing_injection(self):
+        out = os.path.join(self.dir.name, "out.txt")
+        make_ipa(self.ipa, dylibs=["@rpath/MaxTubePlus.dylib"], files=["Frameworks/MaxTubePlus.dylib"])
+        result = run("locate", self.ipa, "MaxTubePlus.dylib", "--github-output", out)
+        self.assertEqual(result.returncode, 0)
+        with open(out) as handle:
+            data = dict(line.split("=", 1) for line in handle.read().splitlines())
+        self.assertEqual(data["bundled"], "true")
+        self.assertEqual(data["path"], "Frameworks/MaxTubePlus.dylib")
+        self.assertEqual(data["loaded"], "true")
+        os.remove(out)
+        make_ipa(self.ipa)
+        run("locate", self.ipa, "MaxTubePlus.dylib", "--github-output", out)
+        with open(out) as handle:
+            self.assertIn("bundled=false", handle.read())
+
     def test_patch_plist_is_idempotent_and_keeps_format(self):
         path = os.path.join(self.dir.name, "Info.plist")
         with open(path, "wb") as handle:
