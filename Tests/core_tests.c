@@ -252,7 +252,50 @@ static void test_protobuf(void) {
     CHECK(mtp_duration_code_for_range(60, 900) == MTPDurationAny);
 }
 
+static void test_text_matching(void) {
+    const char *t = "Learn SwiftUI basics #iOSDev with @AppleDev. channel";
+    const uint8_t *b = (const uint8_t *)t;
+    size_t n = strlen(t);
+    CHECK(mtp_ci_contains(b, n, "swiftui", 7));
+    CHECK(!mtp_ci_contains(b, n, "kotlin", 6));
+    CHECK(mtp_ci_contains_token(b, n, "@appledev", 9));
+    CHECK(!mtp_ci_contains_token(b, n, "@apple", 6));       // continues with a word char
+    CHECK(mtp_ci_contains_token(b, n, "#iosdev", 7));
+    CHECK(mtp_fuzzy_contains(b, n, "SwiftUi basiks", 14, 2)); // one typo
+    CHECK(mtp_fuzzy_contains(b, n, "swfitui", 7, 2));         // transposition = 2 edits
+    CHECK(!mtp_fuzzy_contains(b, n, "swfitui", 7, 0));
+    CHECK(!mtp_fuzzy_contains(b, n, "photoshop", 9, 2));
+    CHECK(mtp_fuzzy_budget(3) == 0 && mtp_fuzzy_budget(6) == 1 && mtp_fuzzy_budget(12) == 2);
+    const uint8_t pb[] = {0x12, 0x07, 'M', 'r', 'B', 'e', 'a', 's', 't'};
+    CHECK(mtp_pb_contains_string_field_ci(pb, sizeof(pb), "mrbeast", 7));
+    CHECK(!mtp_pb_contains_string_field(pb, sizeof(pb), "mrbeast", 7));
+}
+
+static void test_flexible_dates(void) {
+    long long now = 1700000000;
+    MTPSearchFilter f;
+    mtp_filter_reset(&f);
+    f.maxAgeSeconds = 7 * 86400;            // "this week"
+    MTPVideoFacts eightDays = {.durationSeconds = 100, .likes = -1, .ageSeconds = 8 * 86400};
+    CHECK(mtp_filter_evaluate(&f, &eightDays, now) == MTPFilterRejectAge);
+    f.flexibleDates = true;                 // margin = max(1.75 days, 1 day)
+    CHECK(mtp_filter_evaluate(&f, &eightDays, now) == MTPFilterPass);
+    MTPVideoFacts month = {.durationSeconds = 100, .likes = -1, .ageSeconds = 30 * 86400};
+    CHECK(mtp_filter_evaluate(&f, &month, now) == MTPFilterRejectAge);
+
+    mtp_filter_reset(&f);
+    f.uploadedAfterUnix = now - 60 * 86400; // after ~2 months ago
+    MTPVideoFacts seventy = {.durationSeconds = 100, .likes = -1, .ageSeconds = 70 * 86400};
+    CHECK(mtp_filter_evaluate(&f, &seventy, now) == MTPFilterRejectUploadWindow);
+    f.flexibleDates = true;                 // margin = 15 days
+    CHECK(mtp_filter_evaluate(&f, &seventy, now) == MTPFilterPass);
+    MTPVideoFacts year = {.durationSeconds = 100, .likes = -1, .ageSeconds = 365 * 86400};
+    CHECK(mtp_filter_evaluate(&f, &year, now) == MTPFilterRejectUploadWindow);
+}
+
 int main(void) {
+    test_text_matching();
+    test_flexible_dates();
     test_protobuf();
     test_versions();
     test_parsing();

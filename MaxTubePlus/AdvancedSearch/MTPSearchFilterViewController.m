@@ -1,6 +1,7 @@
 #import "MTPSearchFilterViewController.h"
 #import "MTPSearchFilterState.h"
 #import "MTPCommentedVideosViewController.h"
+#import "../CreatorSuppression/MTPBanStore.h"
 
 extern NSString *MTPLastSearchQuery(void);
 extern void MTPRunSearch(NSString *query);
@@ -96,6 +97,9 @@ typedef NS_ENUM(NSInteger, MTPSection) {
     MTPSectionDuration,
     MTPSectionLikes,
     MTPSectionDate,
+    MTPSectionMatching,
+    MTPSectionTopics,
+    MTPSectionBans,
     MTPSectionModes,
     MTPSectionCount,
 };
@@ -104,6 +108,9 @@ typedef NS_ENUM(NSInteger, MTPSection) {
     MTPSearchFilterState *_state;
     UILabel *_durationLabel;
     MTPRangeSlider *_slider;
+    UITextField *_termField;
+    UISegmentedControl *_termMode;
+    UITextField *_banField;
 }
 
 + (void)presentFromTop {
@@ -126,13 +133,18 @@ typedef NS_ENUM(NSInteger, MTPSection) {
     self.title = query.length ? [NSString stringWithFormat:@"Filters · %@", query] : @"Search filters";
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:query.length ? @"Apply" : @"Done" style:UIBarButtonItemStyleDone target:self action:@selector(done)];
     self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"Clear All" style:UIBarButtonItemStylePlain target:self action:@selector(clearAll)];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(refresh) name:MTPBansChangedNotification object:nil];
     [self refresh];
 }
+
+- (void)dealloc { [[NSNotificationCenter defaultCenter] removeObserver:self]; }
 
 - (void)done {
     [self.view endEditing:YES]; // commits the likes field
     [_state save];
     NSString *query = MTPLastSearchQuery();
+    // No search yet: search for the topics/tags themselves.
+    if (query.length == 0 && _state.includeTerms.count) query = [_state.includeTerms componentsJoinedByString:@" "];
     [self dismissViewControllerAnimated:YES completion:^{
         MTPRunSearch(query); // re-runs the current search with the filters (or toasts if none)
     }];
@@ -157,6 +169,9 @@ typedef NS_ENUM(NSInteger, MTPSection) {
         case MTPSectionDuration: return 1;
         case MTPSectionLikes: return 1;
         case MTPSectionDate: return 3;
+        case MTPSectionMatching: return 2;
+        case MTPSectionTopics: return 1 + (NSInteger)(_state.includeTerms.count + _state.excludeTerms.count);
+        case MTPSectionBans: return 1 + (NSInteger)[MTPBanStore shared].creators.count;
         case MTPSectionModes: return 2;
     }
     return 0;
@@ -169,6 +184,9 @@ typedef NS_ENUM(NSInteger, MTPSection) {
         case MTPSectionDuration: return @"Duration";
         case MTPSectionLikes: return @"Minimum likes";
         case MTPSectionDate: return @"Upload date";
+        case MTPSectionMatching: return @"Matching";
+        case MTPSectionTopics: return @"Topics & tags";
+        case MTPSectionBans: return @"Banned creators";
         case MTPSectionModes: return @"Search mode";
     }
     return nil;
@@ -180,6 +198,9 @@ typedef NS_ENUM(NSInteger, MTPSection) {
         case MTPSectionSort: return @"Recency asks YouTube to sort by upload date; your filters are sent along with it. Tap Apply to search again with these settings.";
         case MTPSectionLikes: return @"Search results don't include like counts, so they are looked up from the Return YouTube Dislike API (returnyoutubedislikeapi.com). Results are shown until their count is known.";
         case MTPSectionDate: return @"YouTube narrows results to the nearest server bucket (hour/day/week/month/year); MaxTubePlus then applies the exact range using the upload age shown on each result (English UI labels).";
+        case MTPSectionMatching: return @"Flexible dates: upload-date and recency filters keep results that are close to the range (YouTube only shows rough ages like \"1 year ago\"). Loose names: topics, tags, banned names and commented-video search ignore upper/lower case and tolerate small typos.";
+        case MTPSectionTopics: return @"Results must mention at least one included topic and none of the excluded ones (title, description snippet, #hashtags). Start a #tag to match whole hashtags. Tap a topic to search for it or remove it; with no search open, Apply searches your topics.";
+        case MTPSectionBans: return @"Everything from a banned creator — videos, Shorts and posts — is hidden in Home, Shorts, Search, Subscriptions and Watch next, and the next item takes its place. Their own channel page still opens. Tap a creator to unban.";
         case MTPSectionModes: return @"Commented videos searches comments imported from Google Takeout — including videos that are not in your watch history.";
     }
     return nil;
@@ -265,6 +286,77 @@ typedef NS_ENUM(NSInteger, MTPSection) {
             }
             break;
         }
+        case MTPSectionMatching: {
+            NSString *key = indexPath.row == 0 ? MTPKeySearchFlexibleDates : MTPKeySearchLooseNames;
+            cell.textLabel.text = indexPath.row == 0 ? @"Flexible dates (don't require exact dates)" : @"Loose names (don't require exact names)";
+            cell.textLabel.numberOfLines = 0;
+            UISwitch *toggle = [UISwitch new];
+            toggle.on = [MTPPrefs boolForKey:key];
+            toggle.accessibilityIdentifier = key;
+            [toggle addTarget:self action:@selector(matchingToggled:) forControlEvents:UIControlEventValueChanged];
+            cell.accessoryView = toggle;
+            cell.selectionStyle = UITableViewCellSelectionStyleNone;
+            break;
+        }
+        case MTPSectionTopics: {
+            if (indexPath.row == 0) {
+                if (!_termField) {
+                    _termField = [UITextField new];
+                    _termField.placeholder = @"Topic, keyword or #tag";
+                    _termField.autocapitalizationType = UITextAutocapitalizationTypeNone;
+                    _termField.returnKeyType = UIReturnKeyDone;
+                    _termField.clearButtonMode = UITextFieldViewModeWhileEditing;
+                    [_termField addTarget:self action:@selector(addTerm) forControlEvents:UIControlEventEditingDidEndOnExit];
+                    _termMode = [[UISegmentedControl alloc] initWithItems:@[@"Include", @"Exclude"]];
+                    _termMode.selectedSegmentIndex = 0;
+                }
+                UIButton *add = [UIButton buttonWithType:UIButtonTypeSystem];
+                [add setTitle:@"Add" forState:UIControlStateNormal];
+                [add addTarget:self action:@selector(addTerm) forControlEvents:UIControlEventTouchUpInside];
+                UIStackView *row = [[UIStackView alloc] initWithArrangedSubviews:@[_termField, _termMode, add]];
+                row.spacing = 8;
+                [_termMode setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+                [add setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+                [self embed:row in:cell];
+            } else {
+                NSInteger i = indexPath.row - 1;
+                BOOL exclude = i >= (NSInteger)_state.includeTerms.count;
+                NSString *term = exclude ? _state.excludeTerms[i - _state.includeTerms.count] : _state.includeTerms[i];
+                cell.textLabel.text = term;
+                cell.detailTextLabel.text = exclude ? @"Excluded" : @"Included";
+                cell.imageView.image = [UIImage systemImageNamed:exclude ? @"minus.circle" : ([term hasPrefix:@"#"] ? @"number" : @"plus.circle")];
+                cell.imageView.tintColor = exclude ? [UIColor systemRedColor] : [UIColor systemGreenColor];
+            }
+            break;
+        }
+        case MTPSectionBans: {
+            if (indexPath.row == 0) {
+                if (!_banField) {
+                    _banField = [UITextField new];
+                    _banField.placeholder = @"@handle";
+                    _banField.autocapitalizationType = UITextAutocapitalizationTypeNone;
+                    _banField.autocorrectionType = UITextAutocorrectionTypeNo;
+                    _banField.keyboardType = UIKeyboardTypeTwitter;
+                    _banField.returnKeyType = UIReturnKeyDone;
+                    [_banField addTarget:self action:@selector(addBan) forControlEvents:UIControlEventEditingDidEndOnExit];
+                }
+                UIButton *ban = [UIButton buttonWithType:UIButtonTypeSystem];
+                [ban setTitle:@"Ban" forState:UIControlStateNormal];
+                [ban setTitleColor:[UIColor systemRedColor] forState:UIControlStateNormal];
+                [ban addTarget:self action:@selector(addBan) forControlEvents:UIControlEventTouchUpInside];
+                [ban setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
+                UIStackView *row = [[UIStackView alloc] initWithArrangedSubviews:@[_banField, ban]];
+                row.spacing = 8;
+                [self embed:row in:cell];
+            } else {
+                MTPBannedCreator *creator = [MTPBanStore shared].creators[indexPath.row - 1];
+                cell.textLabel.text = creator.displayName;
+                cell.detailTextLabel.text = creator.channelID ?: (creator.resolveError ?: @"Looking up…");
+                cell.imageView.image = [UIImage systemImageNamed:@"nosign"];
+                cell.imageView.tintColor = [UIColor systemRedColor];
+            }
+            break;
+        }
         case MTPSectionModes: {
             cell.textLabel.text = indexPath.row == 0 ? @"Videos (YouTube search)" : @"Commented videos";
             cell.accessoryType = indexPath.row == 0 ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryDisclosureIndicator;
@@ -297,7 +389,71 @@ typedef NS_ENUM(NSInteger, MTPSection) {
         }
     } else if (indexPath.section == MTPSectionModes && indexPath.row == 1) {
         [self.navigationController pushViewController:[MTPCommentedVideosViewController new] animated:YES];
+    } else if (indexPath.section == MTPSectionTopics && indexPath.row > 0) {
+        NSInteger i = indexPath.row - 1;
+        BOOL exclude = i >= (NSInteger)_state.includeTerms.count;
+        NSString *term = exclude ? _state.excludeTerms[i - _state.includeTerms.count] : _state.includeTerms[i];
+        UIAlertController *sheet = [UIAlertController alertControllerWithTitle:term message:nil preferredStyle:UIAlertControllerStyleActionSheet];
+        [sheet addAction:[UIAlertAction actionWithTitle:[term hasPrefix:@"#"] ? @"Open hashtag page" : @"Search YouTube for this" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+            [self searchTerm:term];
+        }]];
+        [sheet addAction:[UIAlertAction actionWithTitle:@"Remove" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+            [self->_state removeTerm:term];
+            [self refresh];
+        }]];
+        [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+        sheet.popoverPresentationController.sourceView = [tableView cellForRowAtIndexPath:indexPath];
+        [self presentViewController:sheet animated:YES completion:nil];
+    } else if (indexPath.section == MTPSectionBans && indexPath.row > 0) {
+        MTPBannedCreator *creator = [MTPBanStore shared].creators[indexPath.row - 1];
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:[@"Unban " stringByAppendingString:creator.displayName] message:@"Their videos, Shorts and posts will appear again." preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+        [alert addAction:[UIAlertAction actionWithTitle:@"Unban" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *a) {
+            [[MTPBanStore shared] unbanHandle:creator.handle];
+        }]];
+        [self presentViewController:alert animated:YES completion:nil];
     }
+}
+
+- (void)matchingToggled:(UISwitch *)toggle {
+    [MTPPrefs setBool:toggle.on forKey:toggle.accessibilityIdentifier];
+    [self.tableView reloadSections:[NSIndexSet indexSetWithIndex:MTPSectionActive] withRowAnimation:UITableViewRowAnimationNone];
+}
+
+- (void)addTerm {
+    NSString *term = _termField.text;
+    if (term.length < 2) return;
+    [_state addTerm:term exclude:_termMode.selectedSegmentIndex == 1];
+    _termField.text = nil;
+    [self refresh];
+}
+
+- (void)addBan {
+    NSString *input = _banField.text;
+    if (input.length == 0) return;
+    [_banField resignFirstResponder];
+    [[MTPBanStore shared] banHandle:input completion:^(NSString *error) {
+        if (error) {
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Ban creator" message:error preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+            [self presentViewController:alert animated:YES completion:nil];
+        }
+        [self refresh];
+    }];
+    _banField.text = nil;
+    [self refresh];
+}
+
+- (void)searchTerm:(NSString *)term {
+    [_state save];
+    [self dismissViewControllerAnimated:YES completion:^{
+        if ([term hasPrefix:@"#"] && term.length > 1) {
+            NSString *tag = [[term substringFromIndex:1] stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLPathAllowedCharacterSet]];
+            [[UIApplication sharedApplication] openURL:[NSURL URLWithString:[@"youtube://www.youtube.com/hashtag/" stringByAppendingString:tag]] options:@{} completionHandler:nil];
+        } else {
+            MTPRunSearch(term);
+        }
+    }];
 }
 
 - (void)sortChanged:(UISegmentedControl *)segment {

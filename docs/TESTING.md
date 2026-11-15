@@ -43,6 +43,13 @@ Also check:
 - Switching the compatibility switch.
 - That *Modern UI › Hooks* lists at least one floating consumer.
 
+### Topics, tags and bans
+
+- **Topics:** add an included topic, then search. Only results mentioning it remain. Add an excluded topic and its results disappear. With *Loose names* on, a one-letter typo still matches.
+- **Tags:** `#tag` terms match whole hashtags. "Open hashtag page" opens YouTube's hashtag feed.
+- **Bans:** ban an `@handle`. The handle resolves to a name and channel ID in the list, and their videos, Shorts and posts vanish from Home, Search and Subscriptions. The Shorts player skips them. Their channel page still opens. Unban restores everything.
+- **Flexible dates:** "This week" with *Flexible dates* keeps an 8-day-old video, and the strict setting hides it.
+
 ### Settings
 
 - Settings › MaxTubePlus appears (in the "Tweaks" group when YouGroupSettings is present, otherwise in YouTube's first group).

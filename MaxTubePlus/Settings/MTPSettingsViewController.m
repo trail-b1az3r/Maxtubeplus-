@@ -11,6 +11,7 @@
 extern NSString *MTPRefreshRateStatus(void);
 extern NSString *MTPDeArrowStatus(void);
 extern NSString *MTPAdvancedSearchStatus(void);
+extern NSString *MTPBansStatus(void);
 extern BOOL MTPSafeModeActive(void);
 extern void MTPLeaveSafeMode(void);
 
@@ -148,6 +149,10 @@ static NSString *JoinTabs(NSArray<NSString *> *tabs) {
                     Switch(@"Look up like counts (RYD API)", MTPKeySearchFetchLikes),
                     Action(@"Filters & sorting", ^(UIViewController *from) { [MTPSearchFilterViewController presentFromTop]; }),
                     Action(@"Commented videos search", ^(UIViewController *from) { [from.navigationController pushViewController:[MTPCommentedVideosViewController new] animated:YES]; }),
+                    Switch(@"Flexible dates (don't require exact dates)", MTPKeySearchFlexibleDates),
+                    Switch(@"Loose names (don't require exact names)", MTPKeySearchLooseNames),
+                    Action(@"Topics, tags & banned creators", ^(UIViewController *from) { [MTPSearchFilterViewController presentFromTop]; }),
+                    Info(@"Banned creators", ^{ return MTPBansStatus(); }),
                     Info(@"Status", ^{ return [NSString stringWithFormat:@"%@\n%@", [compat statusForModule:MTPModuleSearch], MTPAdvancedSearchStatus()]; }),
                 ]),
             ];

@@ -75,6 +75,7 @@ typedef struct {
     long long maxAgeSeconds;       // "Recency": only videos newer than this.
     long long uploadedAfterUnix;   // "Upload date": absolute lower bound.
     long long uploadedBeforeUnix;  // "Upload date": absolute upper bound.
+    bool flexibleDates;            // Approximate dates: widen date bounds (see mtp_filter_evaluate).
 } MTPSearchFilter;
 
 typedef struct {
@@ -229,6 +230,31 @@ size_t mtp_scan_thumbnail_video_ids(const uint8_t *bytes, size_t length,
 /// Used to match channel names/IDs exactly instead of by substring.
 bool mtp_pb_contains_string_field(const uint8_t *bytes, size_t length,
                                   const char *value, size_t valueLength);
+
+/// Same as mtp_pb_contains_string_field, ASCII case-insensitive.
+bool mtp_pb_contains_string_field_ci(const uint8_t *bytes, size_t length,
+                                     const char *value, size_t valueLength);
+
+// ---------------------------------------------------------------------------
+// Text matching (topics, tags, names)
+// ---------------------------------------------------------------------------
+
+/// ASCII case-insensitive substring search over raw bytes (UTF-8 safe:
+/// non-ASCII bytes must match exactly).
+bool mtp_ci_contains(const uint8_t *haystack, size_t length, const char *needle, size_t needleLength);
+
+/// Like mtp_ci_contains but the match must not continue with a word
+/// character on the right (so "@abc" does not match "@abcd").
+bool mtp_ci_contains_token(const uint8_t *haystack, size_t length, const char *needle, size_t needleLength);
+
+/// Approximate substring match: true if some substring of `haystack` is
+/// within `maxEdits` insertions/deletions/substitutions of `needle`
+/// (ASCII case-insensitive). Needles longer than 64 bytes are matched exactly.
+bool mtp_fuzzy_contains(const uint8_t *haystack, size_t length, const char *needle, size_t needleLength, int maxEdits);
+
+/// Typo budget used for "don't require exact names": 0 below 5 characters,
+/// 1 below 9, otherwise 2.
+int mtp_fuzzy_budget(size_t needleLength);
 
 /// YouTube search "sp" parameter codes.
 typedef enum { MTPUploadAny = 0, MTPUploadHour = 1, MTPUploadToday = 2, MTPUploadWeek = 3, MTPUploadMonth = 4, MTPUploadYear = 5 } MTPUploadCode;

@@ -14,7 +14,7 @@ $(TWEAK_NAME)_FILES = \
 	Downloads/MTPDownloadManager.m Downloads/MTPDownloadsViewController.m Downloads/Downloads.x \
 	DeArrow/MTPDeArrowClient.m DeArrow/DeArrow.x \
 	RefreshRate/RefreshRate.x \
-	CreatorSuppression/MTPSuppressionStore.m CreatorSuppression/MTPSuppressedCreatorsViewController.m CreatorSuppression/CreatorSuppression.x \
+	CreatorSuppression/MTPSuppressionStore.m CreatorSuppression/MTPSuppressedCreatorsViewController.m CreatorSuppression/CreatorSuppression.x CreatorSuppression/MTPBanStore.m CreatorSuppression/Bans.x \
 	AdvancedSearch/MTPSearchFilterState.m AdvancedSearch/MTPSearchFilterViewController.m AdvancedSearch/MTPCommentHistory.m AdvancedSearch/MTPCommentedVideosViewController.m AdvancedSearch/AdvancedSearch.x \
 	ModernUI/MTPTabLayout.m ModernUI/ModernUI.x \
 	Settings/MTPSettingsViewController.m Settings/MTPSettingsURL.m Settings/Settings.x \

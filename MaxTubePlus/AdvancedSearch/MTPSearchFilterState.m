@@ -38,12 +38,16 @@ static void CaptureFirstVideoID(const char *videoID, void *context) {
     _uploadedAfter = [d[@"after"] isKindOfClass:[NSDate class]] ? d[@"after"] : nil;
     _uploadedBefore = [d[@"before"] isKindOfClass:[NSDate class]] ? d[@"before"] : nil;
     _sortMode = (MTPSortMode)[MTPPrefs integerForKey:MTPKeySearchSortMode];
+    _includeTerms = [d[@"include"] isKindOfClass:[NSArray class]] ? d[@"include"] : @[];
+    _excludeTerms = [d[@"exclude"] isKindOfClass:[NSArray class]] ? d[@"exclude"] : @[];
 }
 
 - (void)save {
     NSMutableDictionary *d = [@{@"minLikes": @(_minLikes), @"minDuration": @(_minDuration), @"maxDuration": @(_maxDuration), @"maxAge": @(_maxAge)} mutableCopy];
     if (_uploadedAfter) d[@"after"] = _uploadedAfter;
     if (_uploadedBefore) d[@"before"] = _uploadedBefore;
+    d[@"include"] = _includeTerms ?: @[];
+    d[@"exclude"] = _excludeTerms ?: @[];
     [MTPPrefs setObject:d forKey:MTPKeySearchFilterState];
     [MTPPrefs setInteger:_sortMode forKey:MTPKeySearchSortMode];
 }
@@ -57,12 +61,46 @@ static void CaptureFirstVideoID(const char *videoID, void *context) {
     f.maxAgeSeconds = _maxAge;
     f.uploadedAfterUnix = _uploadedAfter ? (long long)_uploadedAfter.timeIntervalSince1970 : -1;
     f.uploadedBeforeUnix = _uploadedBefore ? (long long)_uploadedBefore.timeIntervalSince1970 : -1;
+    f.flexibleDates = [MTPPrefs boolForKey:MTPKeySearchFlexibleDates];
     return f;
 }
 
 - (BOOL)hasActiveFilters {
     MTPSearchFilter f = [self cFilter];
-    return mtp_filter_is_active(&f);
+    return mtp_filter_is_active(&f) || _includeTerms.count || _excludeTerms.count;
+}
+
+- (void)addTerm:(NSString *)term exclude:(BOOL)exclude {
+    NSString *clean = [term stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (clean.length < 2) return;
+    [self removeTerm:clean];
+    if (exclude) _excludeTerms = [_excludeTerms arrayByAddingObject:clean];
+    else _includeTerms = [_includeTerms arrayByAddingObject:clean];
+    [self save];
+}
+
+- (void)removeTerm:(NSString *)term {
+    NSPredicate *keep = [NSPredicate predicateWithBlock:^BOOL(NSString *t, NSDictionary *b) { return [t caseInsensitiveCompare:term] != NSOrderedSame; }];
+    _includeTerms = [_includeTerms filteredArrayUsingPredicate:keep];
+    _excludeTerms = [_excludeTerms filteredArrayUsingPredicate:keep];
+    [self save];
+}
+
+static BOOL BytesMatchTerm(NSData *bytes, NSString *term, BOOL loose) {
+    NSData *needle = [term dataUsingEncoding:NSUTF8StringEncoding];
+    if (needle.length == 0) return NO;
+    if ([term hasPrefix:@"#"] || [term hasPrefix:@"@"]) // tags/handles: whole token, no typos
+        return mtp_ci_contains_token(bytes.bytes, bytes.length, needle.bytes, needle.length);
+    int edits = loose ? mtp_fuzzy_budget(needle.length) : 0;
+    return mtp_fuzzy_contains(bytes.bytes, bytes.length, needle.bytes, needle.length, edits);
+}
+
+- (BOOL)bytesFailTopics:(NSData *)bytes {
+    BOOL loose = [MTPPrefs boolForKey:MTPKeySearchLooseNames];
+    for (NSString *term in _excludeTerms) if (BytesMatchTerm(bytes, term, loose)) return YES;
+    if (_includeTerms.count == 0) return NO;
+    for (NSString *term in _includeTerms) if (BytesMatchTerm(bytes, term, loose)) return NO;
+    return YES;
 }
 
 - (NSArray<NSNumber *> *)activeKinds {
@@ -72,6 +110,7 @@ static void CaptureFirstVideoID(const char *videoID, void *context) {
     if (_maxDuration >= 0) [kinds addObject:@(MTPFilterKindMaxDuration)];
     if (_maxAge >= 0) [kinds addObject:@(MTPFilterKindRecency)];
     if (_uploadedAfter || _uploadedBefore) [kinds addObject:@(MTPFilterKindUploadWindow)];
+    if (_includeTerms.count || _excludeTerms.count) [kinds addObject:@(MTPFilterKindTopics)];
     return kinds;
 }
 
@@ -85,7 +124,13 @@ static void CaptureFirstVideoID(const char *videoID, void *context) {
         case MTPFilterKindUploadWindow: {
             NSString *a = _uploadedAfter ? [NSDateFormatter localizedStringFromDate:_uploadedAfter dateStyle:NSDateFormatterShortStyle timeStyle:NSDateFormatterNoStyle] : @"…";
             NSString *b = _uploadedBefore ? [NSDateFormatter localizedStringFromDate:_uploadedBefore dateStyle:NSDateFormatterShortStyle timeStyle:NSDateFormatterNoStyle] : @"now";
-            return [NSString stringWithFormat:@"Uploaded %@ – %@", a, b];
+            return [NSString stringWithFormat:@"Uploaded %@ – %@%@", a, b, [MTPPrefs boolForKey:MTPKeySearchFlexibleDates] ? @" (approx.)" : @""];
+        }
+        case MTPFilterKindTopics: {
+            NSMutableArray *parts = [NSMutableArray array];
+            if (_includeTerms.count) [parts addObject:[@"Topics: " stringByAppendingString:[_includeTerms componentsJoinedByString:@", "]]];
+            if (_excludeTerms.count) [parts addObject:[@"Excluding: " stringByAppendingString:[_excludeTerms componentsJoinedByString:@", "]]];
+            return [parts componentsJoinedByString:@" · "];
         }
     }
     return @"";
@@ -98,6 +143,7 @@ static void CaptureFirstVideoID(const char *videoID, void *context) {
         case MTPFilterKindMaxDuration: _maxDuration = -1; break;
         case MTPFilterKindRecency: _maxAge = -1; break;
         case MTPFilterKindUploadWindow: _uploadedAfter = nil; _uploadedBefore = nil; break;
+        case MTPFilterKindTopics: _includeTerms = @[]; _excludeTerms = @[]; break;
     }
     [self save];
 }
@@ -105,6 +151,7 @@ static void CaptureFirstVideoID(const char *videoID, void *context) {
 - (void)clearAll {
     _minLikes = -1; _minDuration = -1; _maxDuration = -1; _maxAge = -1;
     _uploadedAfter = nil; _uploadedBefore = nil;
+    _includeTerms = @[]; _excludeTerms = @[];
     [self save]; // sort mode is intentionally preserved
 }
 

@@ -312,6 +312,7 @@ void MTPInstallAdvancedSearch(void) {
             dispatch_async(dispatch_get_main_queue(), ^{ ScheduleLikesFetch(); });
         }
         BOOL hide = result != MTPFilterPass && result != MTPFilterUnknown;
+        if (!hide && [state bytesFailTopics:bytes]) hide = YES;
         if (hide) gHiddenResults++;
         return hide;
     }];
