@@ -20,6 +20,7 @@ extern void MTPInstallRefreshRate(void);
 extern void MTPInstallCreatorSuppression(void);
 extern void MTPInstallAdvancedSearch(void);
 extern void MTPInstallModernUI(void);
+extern void MTPInstallBans(void);
 
 static const NSInteger kSafeModeAfterCrashes = 2;
 static const NSInteger kDisableEverythingAfterCrashes = 4;
@@ -92,7 +93,7 @@ static void MarkLaunchStable(void) {
 
         void (*installers[])(void) = {
             MTPInstallContext, MTPInstallSettings, MTPInstallModernUI, MTPInstallDownloads, MTPInstallDeArrow,
-            MTPInstallRefreshRate, MTPInstallCreatorSuppression, MTPInstallAdvancedSearch,
+            MTPInstallRefreshRate, MTPInstallCreatorSuppression, MTPInstallBans, MTPInstallAdvancedSearch,
         };
         for (size_t i = 0; i < sizeof(installers) / sizeof(installers[0]); i++) {
             @try {

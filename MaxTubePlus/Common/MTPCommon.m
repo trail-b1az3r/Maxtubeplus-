@@ -24,6 +24,8 @@ NSString *const MTPKeySuppressionWindowDays = @"suppression.windowDays";
 NSString *const MTPKeySearchFiltersEnabled = @"search.filters";
 NSString *const MTPKeySearchFetchLikes = @"search.fetchLikes";
 NSString *const MTPKeySearchReplaceYouTubeFilters = @"search.replaceYouTubeFilters";
+NSString *const MTPKeySearchFlexibleDates = @"search.flexibleDates";
+NSString *const MTPKeySearchLooseNames = @"search.looseNames";
 NSString *const MTPKeySearchSortMode = @"search.sortMode";
 NSString *const MTPKeySearchFilterState = @"search.filterState";
 
@@ -75,6 +77,8 @@ void MTPLog(NSString *format, ...) {
             MTPKeySearchFiltersEnabled: @YES,
             MTPKeySearchFetchLikes: @YES,
             MTPKeySearchReplaceYouTubeFilters: @YES,
+            MTPKeySearchFlexibleDates: @NO,
+            MTPKeySearchLooseNames: @NO,
             MTPKeySearchSortMode: @0,
             // Default configuration required by the project: newer floating
             // menu, no iOS 17 spoof, dock customisation + Subscriptions on.

@@ -8,6 +8,7 @@ typedef NS_ENUM(NSInteger, MTPFilterKind) {
     MTPFilterKindMaxDuration,
     MTPFilterKindRecency,
     MTPFilterKindUploadWindow,
+    MTPFilterKindTopics,
 };
 
 /// Persistent advanced-search state (filters + sort). Filters are independent:
@@ -21,6 +22,15 @@ typedef NS_ENUM(NSInteger, MTPFilterKind) {
 @property (nonatomic, strong, nullable) NSDate *uploadedAfter;
 @property (nonatomic, strong, nullable) NSDate *uploadedBefore;
 @property (nonatomic) MTPSortMode sortMode;
+/// Topics, keywords and #tags. A result must match at least one include term
+/// (when any are set) and no exclude term. Matching is case-insensitive;
+/// with "loose names" it also tolerates typos.
+@property (nonatomic, copy) NSArray<NSString *> *includeTerms;
+@property (nonatomic, copy) NSArray<NSString *> *excludeTerms;
+- (void)addTerm:(NSString *)term exclude:(BOOL)exclude;
+- (void)removeTerm:(NSString *)term;
+/// YES if element bytes should be hidden because of the topic/tag terms.
+- (BOOL)bytesFailTopics:(NSData *)bytes;
 
 - (MTPSearchFilter)cFilter;
 - (BOOL)hasActiveFilters;

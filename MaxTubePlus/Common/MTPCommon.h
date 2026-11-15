@@ -37,6 +37,8 @@ extern NSString *const MTPKeySuppressionWindowDays;   // NSInteger (0 = never de
 extern NSString *const MTPKeySearchFiltersEnabled;    // BOOL
 extern NSString *const MTPKeySearchFetchLikes;        // BOOL (uses RYD API for like counts)
 extern NSString *const MTPKeySearchReplaceYouTubeFilters; // BOOL
+extern NSString *const MTPKeySearchFlexibleDates;     // BOOL: approximate date bounds
+extern NSString *const MTPKeySearchLooseNames;        // BOOL: case/typo-tolerant names, topics, tags
 extern NSString *const MTPKeySearchSortMode;          // NSInteger MTPSortMode
 extern NSString *const MTPKeySearchFilterState;       // NSDictionary
 

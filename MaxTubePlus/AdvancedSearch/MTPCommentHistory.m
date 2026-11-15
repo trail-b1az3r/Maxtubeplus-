@@ -206,6 +206,7 @@ static NSDate *ParseDate(NSString *value) {
     NSMutableArray *matches = [NSMutableArray array];
     NSMutableDictionary<NSValue *, NSNumber *> *scores = [NSMutableDictionary dictionary];
     MTPVideoInfoProvider *info = [MTPVideoInfoProvider shared];
+    BOOL loose = [MTPPrefs boolForKey:MTPKeySearchLooseNames];
     for (MTPCommentRecord *r in all) {
         if (terms.count == 0) { [matches addObject:r]; continue; }
         MTPVideoInfo *video = [info cachedInfoForVideoID:r.videoID];
@@ -214,8 +215,14 @@ static NSDate *ParseDate(NSString *value) {
         BOOL matchesAll = YES;
         for (NSString *term in terms) {
             if (!term.length) continue;
-            NSRange range = [haystack rangeOfString:term];
-            if (range.location == NSNotFound) { matchesAll = NO; break; }
+            BOOL found = [haystack rangeOfString:term].location != NSNotFound;
+            if (!found && loose) {
+                // "Loose names": tolerate small typos.
+                NSData *h = [haystack dataUsingEncoding:NSUTF8StringEncoding];
+                NSData *n = [term dataUsingEncoding:NSUTF8StringEncoding];
+                found = mtp_fuzzy_contains(h.bytes, h.length, n.bytes, n.length, mtp_fuzzy_budget(n.length));
+            }
+            if (!found) { matchesAll = NO; break; }
             score += [r.text.lowercaseString containsString:term] ? 3 : 1; // comment text weighs more
         }
         if (!matchesAll) continue;

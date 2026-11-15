@@ -194,6 +194,7 @@ bool mtp_is_video_id(const char *text) {
 
 void mtp_filter_reset(MTPSearchFilter *f) {
     if (!f) return;
+    f->flexibleDates = false;
     f->minLikes = -1;
     f->minDurationSeconds = -1;
     f->maxDurationSeconds = -1;
@@ -227,16 +228,27 @@ MTPFilterResult mtp_filter_evaluate(const MTPSearchFilter *f, const MTPVideoFact
             if (f->maxDurationSeconds >= 0 && v->durationSeconds > f->maxDurationSeconds) return MTPFilterRejectDurationLong;
         }
     }
+    // Flexible dates: YouTube only shows coarse ages ("1 year ago" covers
+    // 12-23 months), so bounds get a margin of a quarter of the requested span
+    // (at least one day for recency, one week for calendar dates).
     if (f->maxAgeSeconds >= 0) {
+        long long bound = f->maxAgeSeconds;
+        if (f->flexibleDates) bound += (bound / 4 > 86400) ? bound / 4 : 86400;
         if (v->ageSeconds < 0) unknown = true;
-        else if (v->ageSeconds > f->maxAgeSeconds) return MTPFilterRejectAge;
+        else if (v->ageSeconds > bound) return MTPFilterRejectAge;
     }
     if (f->uploadedAfterUnix >= 0 || f->uploadedBeforeUnix >= 0) {
         if (v->ageSeconds < 0) unknown = true;
         else {
             long long uploaded = now - v->ageSeconds;
-            if (f->uploadedAfterUnix >= 0 && uploaded < f->uploadedAfterUnix) return MTPFilterRejectUploadWindow;
-            if (f->uploadedBeforeUnix >= 0 && uploaded > f->uploadedBeforeUnix) return MTPFilterRejectUploadWindow;
+            long long after = f->uploadedAfterUnix, before = f->uploadedBeforeUnix;
+            if (f->flexibleDates) {
+                const long long week = 7 * 86400;
+                if (after >= 0) { long long span = (now - after) / 4; after -= span > week ? span : week; }
+                if (before >= 0) { long long span = (now - before) / 4; before += span > week ? span : week; }
+            }
+            if (after >= 0 && uploaded < after) return MTPFilterRejectUploadWindow;
+            if (before >= 0 && uploaded > before) return MTPFilterRejectUploadWindow;
         }
     }
     if (f->minLikes >= 0) {
@@ -478,19 +490,91 @@ size_t mtp_scan_thumbnail_video_ids(const uint8_t *bytes, size_t length,
     return found;
 }
 
-bool mtp_pb_contains_string_field(const uint8_t *bytes, size_t length, const char *value, size_t valueLength) {
+static int fold(int ch) { return (ch >= 'A' && ch <= 'Z') ? ch + 32 : ch; }
+
+static bool bytes_equal(const uint8_t *a, const char *b, size_t n, bool ci) {
+    if (!ci) return memcmp(a, b, n) == 0;
+    for (size_t i = 0; i < n; i++) if (fold(a[i]) != fold((unsigned char)b[i])) return false;
+    return true;
+}
+
+static bool pb_field(const uint8_t *bytes, size_t length, const char *value, size_t valueLength, bool ci) {
     if (!bytes || !value || valueLength == 0 || valueLength > 16383 || valueLength > length) return false;
     size_t prefix = valueLength < 128 ? 1 : 2;
     uint8_t lenBytes[2];
     if (prefix == 1) lenBytes[0] = (uint8_t)valueLength;
     else { lenBytes[0] = (uint8_t)((valueLength & 0x7F) | 0x80); lenBytes[1] = (uint8_t)(valueLength >> 7); }
     for (size_t i = prefix + 1; i + valueLength <= length; i++) {
-        if (memcmp(bytes + i, value, valueLength) != 0) continue;
         if (memcmp(bytes + i - prefix, lenBytes, prefix) != 0) continue;
+        if (!bytes_equal(bytes + i, value, valueLength, ci)) continue;
         uint8_t tag = bytes[i - prefix - 1];
         if ((tag & 0x07) == 2 && tag >= 0x0A) return true;
     }
     return false;
+}
+
+bool mtp_pb_contains_string_field_ci(const uint8_t *bytes, size_t length, const char *value, size_t valueLength) {
+    return pb_field(bytes, length, value, valueLength, true);
+}
+
+bool mtp_ci_contains(const uint8_t *h, size_t length, const char *needle, size_t n) {
+    if (!h || !needle || n == 0 || n > length) return false;
+    for (size_t i = 0; i + n <= length; i++) if (bytes_equal(h + i, needle, n, true)) return true;
+    return false;
+}
+
+static bool is_word_byte(uint8_t ch) {
+    return isalnum(ch) || ch == '_' || ch == '-' || ch == '.' || ch >= 0x80;
+}
+
+bool mtp_ci_contains_token(const uint8_t *h, size_t length, const char *needle, size_t n) {
+    if (!h || !needle || n == 0 || n > length) return false;
+    for (size_t i = 0; i + n <= length; i++) {
+        if (!bytes_equal(h + i, needle, n, true)) continue;
+        if (i + n < length) {
+            uint8_t next = h[i + n];
+            // A '.' continues a handle only if a word character follows it
+            // ("@a.b"), not at the end of a sentence ("… with @a.").
+            bool continues = next == '.' ? (i + n + 1 < length && isalnum(h[i + n + 1])) : is_word_byte(next);
+            if (continues) continue;
+        }
+        return true;
+    }
+    return false;
+}
+
+int mtp_fuzzy_budget(size_t n) {
+    if (n < 5) return 0;
+    if (n < 9) return 1;
+    return 2;
+}
+
+bool mtp_fuzzy_contains(const uint8_t *h, size_t length, const char *needle, size_t n, int maxEdits) {
+    if (!h || !needle || n == 0) return false;
+    if (maxEdits <= 0 || n > 64) return mtp_ci_contains(h, length, needle, n);
+    // Sellers' algorithm: approximate substring edit distance, O(length * n).
+    int column[65];
+    for (size_t j = 0; j <= n; j++) column[j] = (int)j;
+    for (size_t i = 0; i < length; i++) {
+        int previousDiagonal = column[0];
+        column[0] = 0; // a match may start anywhere
+        int hc = fold(h[i]);
+        for (size_t j = 1; j <= n; j++) {
+            int saved = column[j];
+            int cost = hc == fold((unsigned char)needle[j - 1]) ? 0 : 1;
+            int best = previousDiagonal + cost;
+            if (column[j] + 1 < best) best = column[j] + 1;
+            if (column[j - 1] + 1 < best) best = column[j - 1] + 1;
+            column[j] = best;
+            previousDiagonal = saved;
+        }
+        if (column[n] <= maxEdits) return true;
+    }
+    return false;
+}
+
+bool mtp_pb_contains_string_field(const uint8_t *bytes, size_t length, const char *value, size_t valueLength) {
+    return pb_field(bytes, length, value, valueLength, false);
 }
 
 MTPUploadCode mtp_upload_code_for_age(long long a) {
