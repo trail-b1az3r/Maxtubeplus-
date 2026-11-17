@@ -9,7 +9,7 @@ pkgrel=1
 pkgdesc="Native YouTube client with MaxTubePlus advanced search, banned creators, DeArrow and background downloads"
 arch=('x86_64' 'aarch64')
 url="https://github.com/trail-b1az3r/Maxtubeplus-"
-license=('unknown')
+license=('LicenseRef-unknown')  # upstream MaxTube ships no license file
 depends=('python' 'python-gobject' 'gtk4' 'libadwaita' 'yt-dlp' 'deno' 'mpv' 'ffmpeg')
 makedepends=('git' 'gcc' 'make' 'python-build' 'python-installer' 'python-setuptools' 'python-wheel')
 optdepends=('webp-pixbuf-loader: show DeArrow community thumbnails (WebP)'
@@ -21,7 +21,7 @@ sha256sums=('SKIP')
 
 build() {
   cd maxtubeplus/linux
-  make core CFLAGS="${CFLAGS}"
+  make core CFLAGS="${CFLAGS}" LDFLAGS="${LDFLAGS}"
   python -m build --wheel --no-isolation
 }
 

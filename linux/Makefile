@@ -14,7 +14,7 @@ all: core
 # The exact C core the iOS tweak uses, built as a shared library for ctypes.
 core: $(CORE_LIB)
 $(CORE_LIB): $(CORE_SRC) ../MaxTubePlus/Core/MTPCore.h
-	$(CC) $(CFLAGS) -std=c99 -D_DEFAULT_SOURCE -fPIC -shared -Wall -Wextra -o $@ $(CORE_SRC)
+	$(CC) $(CFLAGS) $(LDFLAGS) -std=c99 -D_DEFAULT_SOURCE -fPIC -shared -Wall -Wextra -o $@ $(CORE_SRC)
 
 test: core
 	$(PYTHON) -m unittest discover -s tests -v
