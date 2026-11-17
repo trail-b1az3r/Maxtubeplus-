@@ -1,0 +1,60 @@
+name: Arch Linux package
+
+# Builds MaxTubePlus Desktop as a real Arch package (makepkg in an archlinux
+# container), installs it with pacman, and runs the installed app's headless
+# self-test. The .pkg.tar.zst is uploaded as an artifact.
+
+on:
+  push:
+    paths:
+      - "linux/**"
+      - "MaxTubePlus/Core/**"
+      - "Tests/**"
+      - ".github/workflows/linux_arch.yml"
+  pull_request:
+    paths:
+      - "linux/**"
+      - "MaxTubePlus/Core/**"
+  workflow_dispatch:
+
+jobs:
+  package:
+    name: makepkg + install + self-test
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Install build and runtime dependencies
+        run: |
+          pacman -Syu --noconfirm --needed base-devel git python python-gobject gtk4 libadwaita yt-dlp deno mpv ffmpeg \
+            python-build python-installer python-setuptools python-wheel xorg-server-xvfb namcap
+
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Build package with makepkg
+        run: |
+          useradd -m builder
+          chown -R builder: linux
+          sudo -u builder git config --global --add safe.directory '*'
+          cd linux
+          sudo -u builder env MAXTUBEPLUS_REPO="file://$GITHUB_WORKSPACE" MAXTUBEPLUS_REF="commit=$GITHUB_SHA" \
+            makepkg --noconfirm --cleanbuild 2>&1 | tee makepkg.log
+          ls -la *.pkg.tar.zst
+
+      - name: Lint package
+        run: namcap linux/*.pkg.tar.zst || true
+
+      - name: Install package and run the installed app headless
+        run: |
+          pacman -U --noconfirm linux/*.pkg.tar.zst
+          maxtubeplus --version
+          xvfb-run -a maxtubeplus --self-test
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: maxtubeplus-desktop-arch
+          path: |
+            linux/*.pkg.tar.zst
+            linux/makepkg.log
+          if-no-files-found: error

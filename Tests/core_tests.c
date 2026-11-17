@@ -262,7 +262,8 @@ static void test_text_matching(void) {
     CHECK(!mtp_ci_contains_token(b, n, "@apple", 6));       // continues with a word char
     CHECK(mtp_ci_contains_token(b, n, "#iosdev", 7));
     CHECK(mtp_fuzzy_contains(b, n, "SwiftUi basiks", 14, 2)); // one typo
-    CHECK(mtp_fuzzy_contains(b, n, "swfitui", 7, 2));         // transposition = 2 edits
+    CHECK(mtp_fuzzy_contains(b, n, "swfitui", 7, 1));         // swapped letters = 1 edit
+    CHECK(mtp_fuzzy_contains(b, n, "basisc", 6, 1));
     CHECK(!mtp_fuzzy_contains(b, n, "swfitui", 7, 0));
     CHECK(!mtp_fuzzy_contains(b, n, "photoshop", 9, 2));
     CHECK(mtp_fuzzy_budget(3) == 0 && mtp_fuzzy_budget(6) == 1 && mtp_fuzzy_budget(12) == 2);

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=MaxTubePlus
+GenericName=YouTube Client
+Comment=Search YouTube with advanced filters, ban creators, DeArrow titles and background downloads
+Exec=maxtubeplus %U
+Icon=io.github.maxtubeplus.Desktop
+Terminal=false
+Categories=AudioVideo;Video;Network;GTK;GNOME;
+Keywords=youtube;video;search;dearrow;download;
+StartupNotify=true
+SingleMainWindow=true

@@ -1,0 +1,39 @@
+# Maintainer: MaxTubePlus contributors
+#
+# Build:   makepkg -si            (builds from the main branch on GitHub)
+# Local:   MAXTUBEPLUS_REPO="file://$(git rev-parse --show-toplevel)" \
+#          MAXTUBEPLUS_REF="commit=$(git rev-parse HEAD)" makepkg -si
+pkgname=maxtubeplus-desktop
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="Native YouTube client with MaxTubePlus advanced search, banned creators, DeArrow and background downloads"
+arch=('x86_64' 'aarch64')
+url="https://github.com/trail-b1az3r/Maxtubeplus-"
+license=('unknown')
+depends=('python' 'python-gobject' 'gtk4' 'libadwaita' 'yt-dlp' 'deno' 'mpv' 'ffmpeg')
+makedepends=('git' 'gcc' 'make' 'python-build' 'python-installer' 'python-setuptools' 'python-wheel')
+optdepends=('webp-pixbuf-loader: show DeArrow community thumbnails (WebP)'
+            'xdg-user-dirs: save downloads in your localized Videos folder')
+_repo="${MAXTUBEPLUS_REPO:-https://github.com/trail-b1az3r/Maxtubeplus-.git}"
+_ref="${MAXTUBEPLUS_REF:-branch=main}"
+source=("maxtubeplus::git+${_repo}#${_ref}")
+sha256sums=('SKIP')
+
+build() {
+  cd maxtubeplus/linux
+  make core CFLAGS="${CFLAGS}"
+  python -m build --wheel --no-isolation
+}
+
+check() {
+  cd maxtubeplus
+  bash Tests/run_tests.sh        # shared C core (same code as the iOS tweak)
+  cd linux
+  python -m unittest discover -s tests
+}
+
+package() {
+  cd maxtubeplus/linux
+  python -m installer --destdir="${pkgdir}" dist/*.whl
+  make install DESTDIR="${pkgdir}" PREFIX=/usr
+}

@@ -552,23 +552,26 @@ int mtp_fuzzy_budget(size_t n) {
 bool mtp_fuzzy_contains(const uint8_t *h, size_t length, const char *needle, size_t n, int maxEdits) {
     if (!h || !needle || n == 0) return false;
     if (maxEdits <= 0 || n > 64) return mtp_ci_contains(h, length, needle, n);
-    // Sellers' algorithm: approximate substring edit distance, O(length * n).
-    int column[65];
-    for (size_t j = 0; j <= n; j++) column[j] = (int)j;
+    // Approximate substring match (Sellers) with optimal-string-alignment
+    // distance: insertions, deletions, substitutions and swapped adjacent
+    // letters each cost 1 edit. O(length * n).
+    int prev2[65], prev[65], cur[65];
+    for (size_t j = 0; j <= n; j++) prev[j] = prev2[j] = (int)j;
     for (size_t i = 0; i < length; i++) {
-        int previousDiagonal = column[0];
-        column[0] = 0; // a match may start anywhere
         int hc = fold(h[i]);
+        cur[0] = 0; // a match may start anywhere
         for (size_t j = 1; j <= n; j++) {
-            int saved = column[j];
-            int cost = hc == fold((unsigned char)needle[j - 1]) ? 0 : 1;
-            int best = previousDiagonal + cost;
-            if (column[j] + 1 < best) best = column[j] + 1;
-            if (column[j - 1] + 1 < best) best = column[j - 1] + 1;
-            column[j] = best;
-            previousDiagonal = saved;
+            int nc = fold((unsigned char)needle[j - 1]);
+            int best = prev[j - 1] + (hc == nc ? 0 : 1);
+            if (prev[j] + 1 < best) best = prev[j] + 1;
+            if (cur[j - 1] + 1 < best) best = cur[j - 1] + 1;
+            if (i > 0 && j > 1 && hc == fold((unsigned char)needle[j - 2]) && fold(h[i - 1]) == nc && prev2[j - 2] + 1 < best)
+                best = prev2[j - 2] + 1;
+            cur[j] = best;
         }
-        if (column[n] <= maxEdits) return true;
+        if (cur[n] <= maxEdits) return true;
+        memcpy(prev2, prev, sizeof(prev));
+        memcpy(prev, cur, sizeof(cur));
     }
     return false;
 }

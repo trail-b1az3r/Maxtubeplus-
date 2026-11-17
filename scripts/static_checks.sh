@@ -13,6 +13,10 @@ echo "== IPA tool tests"
 python3 -I Tests/test_ipa_tool.py || err "ipa_tool tests failed"
 python3 -I Tests/test_fetch_ipa.py || err "fetch_ipa tests failed"
 
+echo "== Linux desktop app tests (logic only; no GTK needed)"
+make -s -C linux test PYTHON=python3 >/dev/null 2>&1 || { make -C linux test PYTHON=python3; err "linux desktop tests failed"; }
+make -s -C linux clean >/dev/null 2>&1 || true
+
 echo "== Logos balance (%hook/%group vs %end)"
 for f in $(find MaxTubePlus -name '*.x'); do
   opens=$(grep -cE '^\s*%(hook|group)\b' "$f" || true)

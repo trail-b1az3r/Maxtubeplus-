@@ -2,3 +2,13 @@
 packages/
 *.deb
 .DS_Store
+linux/maxtubeplus_desktop/libmtpcore.so
+linux/dist/
+linux/build/
+linux/src/
+linux/pkg/
+linux/maxtubeplus/
+linux/*.pkg.tar.zst
+linux/makepkg.log
+*.egg-info/
+__pycache__/

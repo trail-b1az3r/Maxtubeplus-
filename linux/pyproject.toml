@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "maxtubeplus-desktop"
+version = "1.0.0"
+description = "Native Linux YouTube client with MaxTubePlus advanced search, banned creators, DeArrow and background downloads"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []  # PyGObject, GTK4, libadwaita, yt-dlp come from the distribution (see PKGBUILD)
+
+[project.scripts]
+maxtubeplus = "maxtubeplus_desktop.__main__:main"
+
+[tool.setuptools]
+packages = ["maxtubeplus_desktop", "maxtubeplus_desktop.ui"]
+# libmtpcore.so is installed separately to /usr/lib/maxtubeplus by `make install`.

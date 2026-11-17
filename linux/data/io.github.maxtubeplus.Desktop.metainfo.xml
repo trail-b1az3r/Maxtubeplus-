@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.maxtubeplus.Desktop</id>
+  <name>MaxTubePlus</name>
+  <summary>YouTube client with advanced search, creator bans and DeArrow</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <description>
+    <p>A native desktop counterpart to the MaxTubePlus iOS tweak, sharing its filtering and matching code.</p>
+    <ul>
+      <li>Advanced search: duration range, minimum likes, upload date and recency, flexible dates, topics and #tags, loose names</li>
+      <li>Banned creators by @handle, hidden everywhere</li>
+      <li>DeArrow community titles and thumbnails</li>
+      <li>Background downloads with pause, resume, retry and recovery</li>
+      <li>Search your YouTube comments from a Google Takeout export</li>
+      <li>Local subscriptions without a Google account</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">io.github.maxtubeplus.Desktop.desktop</launchable>
+  <url type="homepage">https://github.com/trail-b1az3r/Maxtubeplus-</url>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="1.0.0" date="2026-11-17"/>
+  </releases>
+</component>
